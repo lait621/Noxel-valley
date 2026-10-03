@@ -347,14 +347,17 @@ pub enum Tool {
 
 impl Tool {
     /// The tools, in hotbar order.
-    pub const ALL: [Self; 6] = [
-        Self::Hoe,
-        Self::Can,
-        Self::Axe,
-        Self::Pickaxe,
-        Self::Scythe,
-        Self::Hand,
-    ];
+    /// Every tool, in hotbar order.
+    ///
+    /// `Hand` is deliberately absent. It is the *absence* of a tool — the
+    /// fallback when a slot holds a seed — not something the player carries, and
+    /// giving it a slot meant the sixth hotbar position showed a bag icon
+    /// **inside the bag panel**, which is the kind of thing that makes a player
+    /// wonder whether they have opened the wrong screen.
+    ///
+    /// Five tools in six slots also leaves the last one free, so the first seed
+    /// a player buys lands somewhere they can see without scrolling.
+    pub const ALL: [Self; 5] = [Self::Hoe, Self::Can, Self::Axe, Self::Pickaxe, Self::Scythe];
 
     /// The Chinese name.
     #[must_use]

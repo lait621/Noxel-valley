@@ -84,6 +84,8 @@ pub enum UiAction {
     None,
     /// A hotbar slot was clicked.
     SelectSlot(usize),
+    /// A bag slot was dragged onto another.
+    MoveSlot(usize, usize),
     /// A seed should be bought.
     BuySeed(&'static Crop, u32),
     /// Everything in the bag that can be shipped should be.
@@ -141,6 +143,10 @@ pub struct GameUi {
     /// Data rather than a callback: the interface has no business reading the
     /// farm, and the farm has no business knowing how a hint is drawn.
     pub hint: Option<String>,
+    /// The bag slot being dragged, if any.
+    pub drag_from: Option<usize>,
+    /// The weather animation's phase, in seconds.
+    pub weather_phase: f32,
     /// Whether the villager is close enough to talk to.
     ///
     /// Set by the game each frame rather than derived from a tile, because the
@@ -168,6 +174,8 @@ impl GameUi {
             quests: crate::screens::QuestLog::default(),
             settings: crate::screens::Settings::default(),
             hint: None,
+            drag_from: None,
+            weather_phase: 0.0,
             villager_nearby: false,
         }
     }
@@ -647,8 +655,38 @@ impl GameUi {
                     painter.fill(rect.inset(Insets::all(3)), slot_value.item.color());
                 }
             }
+            // -- dragging --------------------------------------------------
+            //
+            // Press on a slot to pick it up, release on another to put it down.
+            // The bag is the one place a player expects to be able to arrange
+            // their things, and it was a wall of buttons that only selected.
+            if response.pressed && held.is_some() {
+                self.drag_from = Some(index);
+            }
             if response.hovered {
                 self.hovered_slot = Some(index);
+            }
+            if input.primary_released {
+                if let Some(from) = self.drag_from {
+                    if from != index {
+                        action = UiAction::MoveSlot(from, index);
+                    }
+                    self.drag_from = None;
+                }
+            }
+        }
+
+        // Whatever is being dragged rides under the pointer, so the player can
+        // see what they are carrying and where it is about to go.
+        if let Some(from) = self.drag_from {
+            if let Some(item) = state.inventory.slots().get(from).and_then(|s| *s) {
+                let (x, y) = input.point();
+                let ghost = UiRect::new(x - 8, y - 8, 16, 16);
+                if let Some(sprite) = item_sprite(assets, item.item) {
+                    painter.blit(sprite.image, sprite.rect, ghost.x, ghost.y, Color8::WHITE);
+                } else {
+                    painter.fill(ghost, item.item.color());
+                }
             }
         }
 
@@ -1413,9 +1451,16 @@ mod tests {
             .iter()
             .position(|s| s.is_some_and(|s| s.item == Item::Seed(crop)))
             .expect("the seed went somewhere");
+        // Five tools in six slots, so the very first seed a player buys lands
+        // on the hotbar and is visible without touching anything.
+        assert_eq!(
+            slot,
+            crate::config::Tool::ALL.len(),
+            "the seed should land in the first free slot"
+        );
         assert!(
-            slot >= crate::config::HOTBAR_SLOTS,
-            "the tools should be in front of it"
+            slot < crate::config::HOTBAR_SLOTS,
+            "and that slot should be on the hotbar"
         );
         let offset = hotbar_offset(slot);
         let position = slot - offset;

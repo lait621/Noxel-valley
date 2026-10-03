@@ -507,6 +507,18 @@ impl Inventory {
         removed
     }
 
+    /// Exchanges the contents of two slots.
+    ///
+    /// What dragging in the bag does. Two slots rather than an insert, because
+    /// an insert that shifts everything along is a bag that rearranges itself
+    /// while the player is looking at it.
+    pub fn swap(&mut self, a: usize, b: usize) {
+        if a == b || a >= self.slots.len() || b >= self.slots.len() {
+            return;
+        }
+        self.slots.swap(a, b);
+    }
+
     /// The slot holding an item, if any.
     ///
     /// For picking up something the player just acquired: a bought seed has to

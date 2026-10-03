@@ -940,6 +940,91 @@ pub fn mood_for(season: Season, weather: Weather, hour: f32) -> &'static str {
     }
 }
 
+/// Weather you can see.
+///
+/// The weather was simulated and invisible: it changed what grew and how bright
+/// the light was, and the only way to know it was raining was to read the icon
+/// in the clock panel. That is a spreadsheet, not weather.
+impl GameUi {
+    /// Advances the weather animation.
+    pub fn tick_weather(&mut self, dt: f32) {
+        self.weather_phase = (self.weather_phase + dt) % 64.0;
+    }
+
+    /// Draws rain, snow or a storm over the world.
+    ///
+    /// In the interface layer, over everything: rain is *between* the camera and
+    /// the farm, so nothing in the world may occlude it. The scatter is a pair
+    /// of co-prime strides off the frame counter rather than a random number
+    /// generator, so it is deterministic and needs no state.
+    pub fn draw_weather(&mut self, framebuffer: &mut Framebuffer, weather: crate::config::Weather) {
+        use crate::config::Weather;
+        if matches!(weather, Weather::Sunny | Weather::Cloudy) {
+            return;
+        }
+        let (width, height) = (framebuffer.width() as i32, framebuffer.height() as i32);
+        let phase = self.weather_phase;
+        let mut painter = self.ui.painter(framebuffer);
+
+        match weather {
+            Weather::Rain | Weather::Storm => {
+                let heavy = weather == Weather::Storm;
+                let count = if heavy { 96 } else { 54 };
+                // Slanted, because vertical rain reads as static. The slant is
+                // what tells the eye it is falling rather than hanging.
+                let slant = if heavy { 3 } else { 2 };
+                let speed = if heavy { 150.0 } else { 110.0 };
+                let length = if heavy { 9 } else { 6 };
+                let colour = if heavy {
+                    Color8::new(150, 180, 220, 150)
+                } else {
+                    Color8::new(160, 190, 220, 110)
+                };
+                for index in 0..count {
+                    let seed = index as f32 * 37.7;
+                    let x = ((seed * 7.3).fract() * width as f32) as i32;
+                    let y =
+                        ((seed * 3.1 + phase * speed).fract() * (height as f32 + 24.0)) as i32 - 12;
+                    for step in 0..length {
+                        painter.fill(
+                            UiRect::new(x + step * slant / length, y + step, 1, 1),
+                            colour,
+                        );
+                    }
+                    if heavy {
+                        // A slower second layer, which is what gives the storm
+                        // depth instead of a flat sheet of streaks.
+                        let far = ((seed * 5.7 + phase * speed * 0.6).fract()
+                            * (height as f32 + 24.0)) as i32
+                            - 12;
+                        for step in 0..5 {
+                            painter.fill(
+                                UiRect::new(x + 13 + step, far + step, 1, 1),
+                                Color8::new(140, 165, 205, 90),
+                            );
+                        }
+                    }
+                }
+            }
+            Weather::Snow => {
+                for index in 0..72 {
+                    let seed = index as f32 * 23.9;
+                    let drift = (phase * 0.9 + seed).sin() * 6.0;
+                    let x = ((seed * 11.1).fract() * width as f32) as i32 + drift as i32;
+                    let y =
+                        ((seed * 4.3 + phase * 26.0).fract() * (height as f32 + 12.0)) as i32 - 6;
+                    // Snow drifts rather than falls: a flake takes its time.
+                    painter.fill(UiRect::new(x, y, 1, 1), Color8::new(232, 238, 248, 170));
+                    if index % 3 == 0 {
+                        painter.fill(UiRect::new(x + 1, y, 1, 1), Color8::new(232, 238, 248, 120));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,7 +1101,7 @@ mod tests {
         // ground, and watch nothing happen with no way to find out why.
         use crate::config::crop_by_key;
         use crate::sim::Item;
-        use crate::world::{build_farm, Ground};
+        use crate::world::{Ground, build_farm};
 
         let mut map = build_farm();
         let mut state = crate::sim::GameState::new(1);
@@ -1028,7 +1113,10 @@ mod tests {
         // A hoe in hand on bare ground.
         state.selected = 0;
         let text = hint(&state, &map, &player).expect("there is always something to say");
-        assert!(text.contains("翻土"), "a hoe on bare ground should offer to till: {text}");
+        assert!(
+            text.contains("翻土"),
+            "a hoe on bare ground should offer to till: {text}"
+        );
 
         // A seed in hand on the same ground: the hoe is the missing step, and
         // the hint has to say so.
@@ -1036,13 +1124,19 @@ mod tests {
         let slot = state.inventory.find(Item::Seed(crop)).unwrap();
         state.selected = slot;
         let text = hint(&state, &map, &player).expect("a hint");
-        assert!(text.contains("翻土"), "a seed on bare ground must name the hoe: {text}");
+        assert!(
+            text.contains("翻土"),
+            "a seed on bare ground must name the hoe: {text}"
+        );
         assert!(text.contains('1'), "and it must name the key: {text}");
 
         // Tilled ground and the same seed: now it offers to sow.
         map.get_mut(x, y).unwrap().ground = Ground::Tilled;
         let text = hint(&state, &map, &player).expect("a hint");
-        assert!(text.contains("种下"), "a seed on tilled ground should offer to sow: {text}");
+        assert!(
+            text.contains("种下"),
+            "a seed on tilled ground should offer to sow: {text}"
+        );
     }
 
     #[test]

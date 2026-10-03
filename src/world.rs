@@ -64,6 +64,16 @@ pub enum Ground {
 }
 
 impl Ground {
+    /// Whether rain would visibly darken this ground.
+    ///
+    /// Grass and paths do not take water the way soil does — a field that went
+    /// uniformly dark across the pond and the roof would read as a lighting bug
+    /// rather than as rain.
+    #[must_use]
+    pub const fn takes_rain(self) -> bool {
+        matches!(self, Self::Dirt | Self::Tilled)
+    }
+
     /// The region name in the terrain atlas.
     #[must_use]
     pub const fn sprite(self, watered: bool) -> &'static str {
@@ -615,7 +625,13 @@ pub struct FarmMeshes {
 /// and objects are raised by a depth offset derived from their `z`, which is what
 /// makes the depth buffer sort them back to front.
 #[must_use]
-pub fn build_meshes(map: &FarmMap, terrain: &Atlas, crops: &Atlas, props: &Atlas) -> FarmMeshes {
+pub fn build_meshes(
+    map: &FarmMap,
+    terrain: &Atlas,
+    crops: &Atlas,
+    props: &Atlas,
+    raining: bool,
+) -> FarmMeshes {
     let mut ground = Mesh::new("farm.ground", Vec::new(), Vec::new());
     let mut crop_mesh = Mesh::new("farm.crops", Vec::new(), Vec::new());
     let mut prop_mesh = Mesh::new("farm.props", Vec::new(), Vec::new());
@@ -624,7 +640,13 @@ pub fn build_meshes(map: &FarmMap, terrain: &Atlas, crops: &Atlas, props: &Atlas
         for x in 0..map.width {
             let tile = &map.tiles[(y * map.width + x) as usize];
 
-            if let Some(sprite) = terrain.region(tile.ground.sprite(tile.watered)) {
+            // Rain wets the ground it falls on, and the ground has to *look*
+            // wet while it is falling — not the next morning, when the water
+            // has already done its work. The tiles use their watered art for the
+            // duration, which is the cheapest honest way to show it: it is the
+            // same fact, drawn with the same sprite.
+            let wet = tile.watered || (raining && tile.ground.takes_rain());
+            if let Some(sprite) = terrain.region(tile.ground.sprite(wet)) {
                 push_quad(
                     &mut ground,
                     &sprite.uv_min,

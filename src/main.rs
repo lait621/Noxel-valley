@@ -171,9 +171,30 @@ impl Valley {
         valley
     }
 
-    /// Rebuilds the farm meshes if the map changed.
+    /// Forces the weather, for looking at it.
+    fn set_weather(&mut self, weather: config::Weather) {
+        println!("noxel-valley: weather forced to {}", weather.name());
+        self.state.weather = sim::WeatherSystem::restore(1, weather, Vec::new());
+        // The ground's sprites depend on the weather, so the mesh has to be
+        // rebuilt even though the map did not change.
+        self.built_revision = u64::MAX;
+    }
+
+    /// Whether it is raining hard enough to wet the ground.
+    fn raining(&self) -> bool {
+        self.state.weather.today().waters_crops()
+    }
+
+    /// Rebuilds the farm meshes if the map changed, or if the rain started or
+    /// stopped.
+    ///
+    /// The weather is part of the key because the ground's *sprites* depend on
+    /// it. Without that, the farm would keep whichever look it had when the map
+    /// last changed, so the first rainy morning would be wet and every one after
+    /// it dry.
     fn rebuild(&mut self, app: &mut App, assets: &Assets) {
-        if self.built_revision == self.map.revision() {
+        let key = self.map.revision().wrapping_mul(2) + u64::from(self.raining());
+        if self.built_revision == key {
             return;
         }
         let (Some(terrain), Some(crops), Some(props)) = (
@@ -182,10 +203,13 @@ impl Valley {
             assets.atlases.props.as_ref(),
         ) else {
             // No art: the ground is a flat colour and there is nothing to build.
-            self.built_revision = self.map.revision();
+            self.built_revision = key;
             return;
         };
-        let meshes = world::build_meshes(&self.map, terrain, crops, props);
+        // Rain is a *look*, not a state change: the tiles show their watered
+        // art while it falls and go back to dry when it stops, without anything
+        // being written into the farm.
+        let meshes = world::build_meshes(&self.map, terrain, crops, props, self.raining());
 
         for (mesh, material, slot) in [
             (meshes.ground, self.ground_material, 0u8),
@@ -380,6 +404,7 @@ impl Valley {
         // game ever showed stayed on screen for the rest of the session, which
         // is how "任务完成" became a permanent fixture of the interface.
         self.game_ui.tick(dt);
+        self.game_ui.tick_weather(dt);
         self.handle_keys();
 
         let playing = self.game_ui.screen == Screen::Playing && !self.game_ui.help_open;
@@ -594,6 +619,8 @@ impl Valley {
             .draw_aim_highlight(framebuffer, &self.state, &self.player, focus);
         self.game_ui
             .draw_held_item(framebuffer, &self.state, &self.player, assets, focus);
+        self.game_ui
+            .draw_weather(framebuffer, self.state.weather.today());
         self.game_ui.end();
     }
 
@@ -601,6 +628,7 @@ impl Valley {
         match action {
             UiAction::None => {}
             UiAction::SelectSlot(index) => self.state.selected = index,
+            UiAction::MoveSlot(from, to) => self.state.inventory.swap(from, to),
             UiAction::BuySeed(crop, quantity) => {
                 let cost = crop.seed_price * quantity;
                 if self.state.inventory.free_slots() == 0 {
@@ -978,6 +1006,8 @@ struct Args {
     /// Plant a demonstration field, so the crop art can be seen without playing
     /// a season first.
     demo: bool,
+    /// Force the weather, so it can be looked at without waiting for it.
+    weather: Option<config::Weather>,
     help: bool,
 }
 
@@ -993,6 +1023,7 @@ impl Default for Args {
             assets: None,
             screen: None,
             demo: false,
+            weather: None,
             help: false,
         }
     }
@@ -1016,6 +1047,7 @@ OPTIONS:
     --assets DIR   Asset root. Found automatically by default.
     --screen NAME  Open a screen at startup: inventory, shop, bin, summary.
     --demo         Plant a demonstration field at several growth stages.
+    --weather NAME Force the weather: sunny, cloudy, rain, storm, snow.
     -h, --help     Print this text.
 
 CONTROLS:
@@ -1072,6 +1104,17 @@ impl Args {
                     parsed.assets = Some(value.into());
                 }
                 "--demo" => parsed.demo = true,
+                "--weather" => {
+                    let value = args.next().ok_or("--weather needs a name")?;
+                    parsed.weather = Some(match value.as_str() {
+                        "sunny" | "sun" => config::Weather::Sunny,
+                        "cloudy" | "cloud" => config::Weather::Cloudy,
+                        "rain" | "rainy" => config::Weather::Rain,
+                        "storm" => config::Weather::Storm,
+                        "snow" | "snowy" => config::Weather::Snow,
+                        other => return Err(format!("unknown weather {other:?}")),
+                    });
+                }
                 "--screen" => {
                     let value = args.next().ok_or("--screen needs a name")?;
                     parsed.screen = Some(match value.as_str() {
@@ -1165,6 +1208,9 @@ fn run(args: &Args) -> Result<(), String> {
     }
     if args.demo {
         valley.borrow_mut().plant_demo_field();
+    }
+    if let Some(weather) = args.weather {
+        valley.borrow_mut().set_weather(weather);
     }
     app.add_plugin(ValleyPlugin {
         valley: Rc::clone(&valley),
