@@ -136,6 +136,11 @@ pub struct GameUi {
     pub quests: crate::screens::QuestLog,
     /// Volume, music, and the aim highlight.
     pub settings: crate::screens::Settings,
+    /// What to do next, set by the game each frame.
+    ///
+    /// Data rather than a callback: the interface has no business reading the
+    /// farm, and the farm has no business knowing how a hint is drawn.
+    pub hint: Option<String>,
     /// Whether the villager is close enough to talk to.
     ///
     /// Set by the game each frame rather than derived from a tile, because the
@@ -162,6 +167,7 @@ impl GameUi {
             dialogue: crate::screens::Dialogue::default(),
             quests: crate::screens::QuestLog::default(),
             settings: crate::screens::Settings::default(),
+            hint: None,
             villager_nearby: false,
         }
     }
@@ -461,6 +467,33 @@ impl GameUi {
             );
         }
 
+        // -- what to do next -------------------------------------------------
+        //
+        // Above the hotbar, in the player's eye line, and only in the world: a
+        // clue drawn over a menu is a clue in the way.
+        if let Some(text) = self.hint.clone() {
+            let style = TextStyle::new(theme.palette.text_strong)
+                .with_align(TextAlign::Center)
+                .with_shadow(theme.palette.shadow);
+            let (width, height) = self.ui.font.measure(&text, &style);
+            let strip = UiRect::new(
+                screen.x + (screen.w as i32 - width as i32 - 8) / 2,
+                hotbar.y - height as i32 - 24,
+                width + 8,
+                height + 2,
+            );
+            let mut painter = self.ui.painter(framebuffer);
+            let mut plate = theme.tooltip;
+            // A flat dark plate rather than the parchment frame: this sits in
+            // the middle of the screen, every second of play, and a bordered box
+            // there competes with the world for attention.
+            plate.source = UiRect::new(0, 0, 0, 0);
+            plate.fill = Color8::new(14, 12, 18, 190);
+            plate.border_width = 0;
+            self.ui.panel_blocking(&mut painter, input, strip, &plate);
+            self.ui.font.draw_text(&mut painter, strip, &text, &style);
+        }
+
         // -- the hotbar ------------------------------------------------------
         {
             let mut painter = self.ui.painter(framebuffer);
@@ -491,6 +524,23 @@ impl GameUi {
                         painter.fill(rect.inset(Insets::all(3)), slot.item.color());
                     }
                 }
+                // The key that selects this slot, drawn in its corner. The
+                // hotbar is a six-slot toolbar bound to 1-6, and nothing on it
+                // said so.
+                if position < 9 {
+                    let key = TextStyle::new(if selected {
+                        theme.palette.accent
+                    } else {
+                        theme.palette.text_dim
+                    })
+                    .with_shadow(theme.palette.shadow);
+                    self.ui.font.draw_text(
+                        &mut painter,
+                        UiRect::new(rect.x + 2, rect.y + 1, 8, 8),
+                        &(position + 1).to_string(),
+                        &key,
+                    );
+                }
                 if response.clicked {
                     action = UiAction::SelectSlot(index);
                 }
@@ -499,7 +549,6 @@ impl GameUi {
                 }
             }
         }
-
         self.queued_slot_tooltip(input, state);
         action
     }
@@ -1189,7 +1238,7 @@ pub fn hotbar_slot(hotbar: UiRect, index: usize) -> UiRect {
 
 /// The sprite for an item, if the art has one.
 #[must_use]
-pub fn item_sprite<'a>(assets: &'a Assets, item: Item) -> Option<Sprite<'a>> {
+pub(crate) fn item_sprite<'a>(assets: &'a Assets, item: Item) -> Option<Sprite<'a>> {
     icon(assets, &item.icon())
 }
 

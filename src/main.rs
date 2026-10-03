@@ -569,6 +569,9 @@ impl Valley {
     /// Draws the interface.
     fn draw(&mut self, app: &App, framebuffer: &mut Framebuffer, assets: &Assets) {
         let input = self.input.clone();
+        // Computed here because this is the only place that has the farm, the
+        // player and the bag at once — and it is a *sentence*, not a widget.
+        self.game_ui.hint = screens::hint(&self.state, &self.map, &self.player);
         self.game_ui.begin(app.config.fixed_dt, &input);
         // The action is applied here rather than in `update`, because this is
         // where the widgets run and the answer is only known now.
@@ -589,6 +592,8 @@ impl Valley {
         let focus = app.camera().snapped_focus();
         self.game_ui
             .draw_aim_highlight(framebuffer, &self.state, &self.player, focus);
+        self.game_ui
+            .draw_held_item(framebuffer, &self.state, &self.player, assets, focus);
         self.game_ui.end();
     }
 

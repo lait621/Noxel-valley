@@ -725,6 +725,47 @@ impl GameUi {
         action
     }
 
+    /// Draws what the player is holding, beside them.
+    ///
+    /// Over the character, in the interface layer, where it is crisp and cannot
+    /// be hidden behind a tree. The player is a sixteen-pixel sprite with no
+    /// arms to speak of, so the only place a held hoe can be visible is next to
+    /// them — and a player who cannot see what is in their hand has no way to
+    /// tell the hoe from the watering can.
+    pub fn draw_held_item(
+        &mut self,
+        framebuffer: &mut Framebuffer,
+        state: &crate::sim::GameState,
+        player: &crate::player::Player,
+        assets: &Assets,
+        focus: noxel_core::math::Vec3,
+    ) {
+        let Some(item) = state
+            .inventory
+            .slots()
+            .get(state.selected)
+            .and_then(|slot| *slot)
+            .map(|slot| slot.item)
+        else {
+            return;
+        };
+        let at = aim_rect(
+            player.tile(),
+            focus,
+            framebuffer.width(),
+            framebuffer.height(),
+        );
+        let badge = UiRect::new(at.right() + 1, at.y - 5, 16, 16);
+        let mut painter = self.ui.painter(framebuffer);
+        if let Some(sprite) = crate::ui::item_sprite(assets, item) {
+            painter.blit(sprite.image, sprite.rect, badge.x, badge.y, Color8::WHITE);
+        } else {
+            // No art for it: a coloured chip still says "you are holding
+            // something", which is the part that matters.
+            painter.fill(badge.inset(noxel_ui::Insets::all(3)), item.color());
+        }
+    }
+
     /// Outlines the tile the tool would act on.
     ///
     /// Drawn in the interface layer rather than as a world sprite because a
@@ -781,6 +822,62 @@ impl GameUi {
                 );
             }
         }
+    }
+}
+
+/// What to do next, in one line.
+///
+/// The game had no way of answering this, and the consequence was a player who
+/// bought a seed, had it put in their hand, pressed the use key on un-tilled
+/// ground, and watched nothing happen — with no way to find out that the hoe
+/// was the missing step. The genre's convention is not self-evident; it is
+/// learned, and this is where it gets taught.
+///
+/// It reads the world rather than a script, so it is right at every point in
+/// the loop: it names the ripe crop you are standing next to, the seed in your
+/// hand, and the tool you have not selected.
+#[must_use]
+pub fn hint(
+    state: &crate::sim::GameState,
+    map: &crate::world::FarmMap,
+    player: &crate::player::Player,
+) -> Option<String> {
+    use crate::config::Tool;
+    use crate::sim::Item;
+    use crate::world::Ground;
+
+    let aim = player.aim_tile();
+    let tile = map.get(aim.0, aim.1);
+    let held = state
+        .inventory
+        .slots()
+        .get(state.selected)
+        .and_then(|slot| *slot)
+        .map(|slot| slot.item);
+
+    // Something to harvest beats everything: it is the one thing that will not
+    // wait, because the season ends.
+    if tile.is_some_and(|t| t.plant.is_some_and(|p| p.is_ripe())) {
+        return Some("按 空格 收割".to_string());
+    }
+
+    if let Some(Item::Seed(crop)) = held {
+        let ready = tile.is_some_and(|t| t.ground == Ground::Tilled && t.plant.is_none());
+        if ready {
+            return Some(format!("按 空格 种下{}", crop.name));
+        }
+        return Some("这块地还没翻。按 1 选锄头，对着地按 空格 翻土".to_string());
+    }
+
+    match state.current_tool() {
+        Tool::Hoe if tile.is_some_and(|t| t.ground.is_hoeable() && t.plant.is_none()) => {
+            Some("按 空格 翻土".to_string())
+        }
+        Tool::Can if tile.is_some_and(|t| t.ground == Ground::Tilled && !t.watered) => {
+            Some("按 空格 浇水".to_string())
+        }
+        Tool::Hand => Some("按 Tab 打开背包，点一格种子拿在手上".to_string()),
+        _ => Some("1-6 或滚轮 换工具 · Tab 背包 · ? 操作说明".to_string()),
     }
 }
 
@@ -910,6 +1007,42 @@ mod tests {
             assert_eq!(rect.w, crate::config::TILE);
             assert!(rect.x.abs() < 10_000 && rect.y.abs() < 10_000);
         }
+    }
+
+    #[test]
+    fn the_hint_names_the_hoe_when_a_seed_is_in_hand_and_the_ground_is_bare() {
+        // This is the sentence whose absence made the game unplayable: buy a
+        // seed, have it put in your hand, press the use key on un-tilled
+        // ground, and watch nothing happen with no way to find out why.
+        use crate::config::crop_by_key;
+        use crate::sim::Item;
+        use crate::world::{build_farm, Ground};
+
+        let mut map = build_farm();
+        let mut state = crate::sim::GameState::new(1);
+        let player = crate::player::Player::at(crate::world::START_TILE);
+        let crop = crop_by_key("parsnip").unwrap();
+        let (x, y) = player.aim_tile();
+        map.get_mut(x, y).unwrap().ground = Ground::Dirt;
+
+        // A hoe in hand on bare ground.
+        state.selected = 0;
+        let text = hint(&state, &map, &player).expect("there is always something to say");
+        assert!(text.contains("翻土"), "a hoe on bare ground should offer to till: {text}");
+
+        // A seed in hand on the same ground: the hoe is the missing step, and
+        // the hint has to say so.
+        state.inventory.add(Item::Seed(crop), 1);
+        let slot = state.inventory.find(Item::Seed(crop)).unwrap();
+        state.selected = slot;
+        let text = hint(&state, &map, &player).expect("a hint");
+        assert!(text.contains("翻土"), "a seed on bare ground must name the hoe: {text}");
+        assert!(text.contains('1'), "and it must name the key: {text}");
+
+        // Tilled ground and the same seed: now it offers to sow.
+        map.get_mut(x, y).unwrap().ground = Ground::Tilled;
+        let text = hint(&state, &map, &player).expect("a hint");
+        assert!(text.contains("种下"), "a seed on tilled ground should offer to sow: {text}");
     }
 
     #[test]
