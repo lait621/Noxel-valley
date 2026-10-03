@@ -127,6 +127,24 @@ if [ "$(uname -s)" = "Darwin" ]; then
     # executable.
     cp -R "$assets" "$app/Contents/Resources/assets"
 
+    # The icon comes from the engine's logo tool, which is the same generator
+    # that produces the mark for the README. Skipped rather than fatal when the
+    # engine checkout is not next door: a bundle without an icon is still a
+    # bundle, and this is a build that has to work from a clean clone.
+    icon=""
+    if [ -f "$root/../noxel/tools/logo/logo.py" ]; then
+        printf '\n== drawing the icon\n'
+        if python3 "$root/../noxel/tools/logo/logo.py" --out "$app/Contents/Resources" >/dev/null 2>&1 \
+            && [ -f "$app/Contents/Resources/Noxel.icns" ]; then
+            mv "$app/Contents/Resources/Noxel.icns" "$app/Contents/Resources/AppIcon.icns"
+            rm -rf "$app/Contents/Resources/Noxel.iconset" "$app"/Contents/Resources/noxel-*.png
+            icon="AppIcon"
+            echo "  AppIcon.icns"
+        else
+            echo "  (no icon; the logo tool needs Pillow)" >&2
+        fi
+    fi
+
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -146,6 +164,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>CFBundleIconFile</key>
+    <string>$icon</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
