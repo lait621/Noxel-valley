@@ -20,7 +20,11 @@ path = "src/main.rs"
 default = []
 # Off by default so `cargo build` downloads nothing and the tests run anywhere.
 # The shipped game turns it on; see README.md.
-window = ["noxel-window/window", "dep:noxel-audio"]
+# A playable build is a window *and* sound, so `window` turns both on.
+# Making audio a separate switch meant the shipped bundle had no soundtrack at
+# all: every `#[cfg(feature = "audio")]` block was compiled out and nothing said
+# so. `audio` still exists on its own for rendering a track headlessly.
+window = ["noxel-window/window", "audio"]
 # Audio is useful headless too (rendering a soundtrack to a file), so it is a
 # separate feature that `window` turns on rather than being welded to it.
 audio = ["dep:noxel-audio", "noxel-audio/output"]
@@ -61,17 +65,17 @@ description = "A playable top-down farming game built on the Noxel engine."
 #
 # Every engine dependency below points at the same revision. To develop against
 # a local engine checkout instead, replace `{ git = ..., rev = ... }` with
-# `{ path = "../noxel/crates/<name>" }` — that is the whole change.
-noxel-core = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-asset = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-render = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-camera = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-window = { git = "https://github.com/lait621/noxel", rev = "b66688b", default-features = false }
-noxel-ui = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-debug = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-app = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-gen = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
-noxel-audio = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+# `{ git = "https://github.com/lait621/noxel", rev = "a0509c3" }` — that is the whole change.
+noxel-core = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-asset = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-render = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-camera = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-window = { git = "https://github.com/lait621/noxel", rev = "a0509c3", default-features = false }
+noxel-ui = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-debug = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-app = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-gen = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
+noxel-audio = { git = "https://github.com/lait621/noxel", rev = "a0509c3" }
 
 [profile.release]
 opt-level = 3

@@ -576,8 +576,15 @@ impl Valley {
         };
         self.apply(action);
         // The cursor goes on last, over the world and under nothing.
+        //
+        // It projects through the camera's *snapped* focus rather than the
+        // player's position. The camera smooths towards the player and snaps to
+        // whole sixteenths, so the two differ by up to half a tile while
+        // walking — which is exactly the offset between the highlight and the
+        // tile the tool acts on.
+        let focus = app.camera().snapped_focus();
         self.game_ui
-            .draw_aim_highlight(framebuffer, &self.state, &self.player);
+            .draw_aim_highlight(framebuffer, &self.state, &self.player, focus);
         self.game_ui.end();
     }
 
@@ -1049,6 +1056,7 @@ impl Args {
                 "--screen" => {
                     let value = args.next().ok_or("--screen needs a name")?;
                     parsed.screen = Some(match value.as_str() {
+                        "playing" | "world" => Screen::Playing,
                         "inventory" | "bag" => Screen::Inventory,
                         "shop" => Screen::Shop,
                         "bin" | "shipping" => Screen::Bin,
@@ -1267,7 +1275,11 @@ fn run_window(args: &Args, app: App, valley: Rc<RefCell<Valley>>) -> Result<(), 
 
     let config = noxel_window::WindowConfig::default()
         .with_title("星野农场 · Noxel Valley")
-        .with_internal(INTERNAL_WIDTH, INTERNAL_HEIGHT);
+        .with_internal(INTERNAL_WIDTH, INTERNAL_HEIGHT)
+        // Escape opens the pause menu. A window host that closed on it would
+        // take the key before the game ever saw it, which is what made holding
+        // Escape quit the session.
+        .keep_escape();
     // The soundtrack starts on the season and weather the farm opens on, and
     // is never started at all if the machine has no device.
     #[cfg(feature = "audio")]
@@ -1293,6 +1305,38 @@ fn run_window(args: &Args, app: App, valley: Rc<RefCell<Valley>>) -> Result<(), 
         audio,
     };
     noxel_window::run(config, game).map_err(|error| error.to_string())
+}
+
+/// Starts the soundtrack, if this build has one and the machine has a device.
+///
+/// A machine with no sound card should still be able to play the game, so a
+/// failure here returns `None` and the game carries on in silence rather than
+/// refusing to start.
+#[cfg(feature = "audio")]
+fn start_music(seed: u32, mood: noxel_audio::music::Mood) -> Option<noxel_audio::AudioHandle> {
+    match noxel_audio::output::start(seed, mood) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            eprintln!("noxel-valley: no music ({error})");
+            None
+        }
+    }
+}
+
+/// The engine's mood for a name from [`screens::mood_for`].
+///
+/// The mapping lives here rather than in `screens.rs` so that module stays
+/// free of the audio engine: the weather-to-mood decision is a game rule and
+/// worth testing, and it should not need a sound card to be testable.
+#[cfg(feature = "audio")]
+fn mood_named(name: &str) -> noxel_audio::music::Mood {
+    use noxel_audio::music::moods;
+    match name {
+        "summer" => moods::SUMMER,
+        "fall" => moods::FALL,
+        "winter" => moods::WINTER,
+        _ => moods::SPRING,
+    }
 }
 
 #[cfg(not(feature = "window"))]

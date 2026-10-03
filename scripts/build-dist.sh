@@ -35,7 +35,7 @@ cargo build $flag -p noxel-valley --features window -p noxel-valley-artgen
 
 bin="$root/target/$profile/noxel-valley"
 out="$root/dist/noxel-valley"
-assets="$root/games/noxel-valley/assets"
+assets="$root/assets"
 
 if [ ! -f "$bin" ]; then
     printf 'build produced no binary at %s\n' "$bin" >&2
@@ -45,6 +45,23 @@ if [ ! -d "$assets/farm" ]; then
     printf '\n== generating the game art (not built yet)\n'
     cargo run $flag -q -p noxel-valley-artgen -- --out "$assets"
 fi
+
+# Both halves of the asset tree have to exist, and this is a hard stop rather
+# than a warning. A bundle shipped without the font draws no text anywhere — the
+# game still runs, still responds, and every label is invisible, which reads as
+# "the game is broken" rather than "an asset is missing". That is exactly the
+# failure this check exists to prevent.
+for required in "$assets/farm/terrain.png" "$assets/farm/ui.png" \
+                "$assets/fonts/ui_font.png" "$assets/fonts/ui_font.json"; do
+    if [ ! -f "$required" ]; then
+        printf '\nmissing asset: %s\n' "$required" >&2
+        printf 'regenerate with:\n' >&2
+        printf '  cargo run -p noxel-valley-artgen -- --out assets\n' >&2
+        printf '  python3 tools/fontgen/fontgen.py --out assets/fonts\n' >&2
+        printf '  (the font tool lives in the Noxel engine repository)\n' >&2
+        exit 1
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # dist/noxel-valley — the relocatable directory
@@ -151,6 +168,15 @@ fi
 printf '\n== verifying\n'
 ( cd "$out" && ./noxel-valley --frames 3 --dump /tmp/noxel-valley-smoke >/dev/null \
     && echo "  runs from inside dist/noxel-valley/" )
+# And it can find its font, which is the difference between a game and a
+# beautifully rendered field with no words on it.
+if ( cd "$out" && ./noxel-valley --frames 2 --dump /tmp/noxel-valley-smoke 2>&1 \
+        | grep -q 'run .*fontgen.*for the font' ); then
+    printf 'the bundle cannot find its font\n' >&2
+    exit 1
+fi
+( cd "$out" && ./noxel-valley --frames 2 --dump /tmp/noxel-valley-smoke 2>&1 \
+    | grep -q 'assets from' && echo "  finds its assets and its font" )
 work="$(mktemp -d)"
 ( cd "$work" && "$out/noxel-valley" --frames 3 --dump "$work/frames" >/dev/null \
     && echo "  runs from an unrelated directory" )

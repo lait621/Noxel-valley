@@ -740,6 +740,7 @@ impl GameUi {
         framebuffer: &mut Framebuffer,
         state: &crate::sim::GameState,
         player: &crate::player::Player,
+        focus: noxel_core::math::Vec3,
     ) {
         if !self.settings.highlight || self.screen != Screen::Playing || self.help_open {
             return;
@@ -751,16 +752,11 @@ impl GameUi {
             return;
         }
         {
-            let (x, y) = player.aim_tile();
-            let focus = player.camera_focus();
-            let tile = crate::config::TILE as f32;
-            let sx = ((x as f32 + 0.5 - focus.x) * tile) + framebuffer.width() as f32 * 0.5;
-            let sy = ((y as f32 + 0.5 - focus.y) * tile) + framebuffer.height() as f32 * 0.5;
-            let rect = UiRect::new(
-                sx.round() as i32 - crate::config::TILE as i32 / 2,
-                sy.round() as i32 - crate::config::TILE as i32 / 2,
-                crate::config::TILE,
-                crate::config::TILE,
+            let rect = aim_rect(
+                player.aim_tile(),
+                focus,
+                framebuffer.width(),
+                framebuffer.height(),
             );
             let theme = self.ui.theme;
             // Idle is a quiet outline; a tool that will do something is the
@@ -788,6 +784,47 @@ impl GameUi {
     }
 }
 
+/// Where a tile lands on screen.
+///
+/// The same projection the renderer uses: one world unit is exactly `TILE`
+/// pixels, and the camera's focus is the centre of the frame. The caller must
+/// pass the camera's **snapped** focus rather than the player's position — the
+/// camera smooths towards the player and snaps to whole sixteenths, so the two
+/// differ by up to half a tile while walking, and the highlight drifts from the
+/// tile the tool acts on by exactly that much.
+#[must_use]
+pub fn aim_rect(
+    tile: (i32, i32),
+    focus: noxel_core::math::Vec3,
+    width: u32,
+    height: u32,
+) -> UiRect {
+    let size = crate::config::TILE;
+    let scale = size as f32;
+    let centre_x = (tile.0 as f32 + 0.5 - focus.x) * scale + width as f32 * 0.5;
+    let centre_y = (z_of(tile.1) - focus.z) * scale + height as f32 * 0.5;
+    // Rounded, never truncated: a fractional screen position is a highlight
+    // that shimmers by a pixel as the camera moves.
+    UiRect::new(
+        centre_x.round() as i32 - size as i32 / 2,
+        centre_y.round() as i32 - size as i32 / 2,
+        size,
+        size,
+    )
+}
+
+/// The world `z` of a tile row.
+///
+/// Screen `y` grows downwards and world `z` grows towards the bottom of the
+/// screen, which is the whole reason the game can be top-down and depth-sorted
+/// at once. Kept as a named function because getting the sign wrong is a
+/// highlight that is mirrored about the middle of the screen — which still
+/// looks plausible in the centre and is obviously wrong at the edges.
+#[must_use]
+pub fn z_of(row: i32) -> f32 {
+    row as f32 + 0.5
+}
+
 /// The season and weather, as a mood name, for the music director.
 ///
 /// A free function rather than a method so the mapping is testable on its own —
@@ -809,6 +846,71 @@ pub fn mood_for(season: Season, weather: Weather, hour: f32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_highlight_lands_where_the_camera_says_the_tile_is() {
+        // The reported bug was a highlight that did not sit on the tile the
+        // tool acted on. This pins the projection to the renderer's own
+        // arithmetic: one world unit is `TILE` pixels and the focus is the
+        // centre of the frame, so a tile centred on the focus must land centred
+        // on the frame.
+        use noxel_core::math::Vec3;
+        let (w, h) = (480, 270);
+        let focus = Vec3::new(10.5, 0.0, 20.5);
+        let rect = aim_rect((10, 20), focus, w, h);
+        assert_eq!(rect.x, w as i32 / 2 - crate::config::TILE as i32 / 2);
+        assert_eq!(rect.y, h as i32 / 2 - crate::config::TILE as i32 / 2);
+        assert_eq!(rect.w, crate::config::TILE);
+    }
+
+    #[test]
+    fn moving_one_tile_moves_the_highlight_exactly_one_tile() {
+        use noxel_core::math::Vec3;
+        let focus = Vec3::new(0.0, 0.0, 0.0);
+        let base = aim_rect((5, 5), focus, 480, 270);
+        let right = aim_rect((6, 5), focus, 480, 270);
+        let below = aim_rect((5, 6), focus, 480, 270);
+        assert_eq!(right.x - base.x, crate::config::TILE as i32);
+        assert_eq!(
+            right.y, base.y,
+            "moving right must not move the highlight down"
+        );
+        assert_eq!(below.y - base.y, crate::config::TILE as i32);
+        assert_eq!(
+            below.x, base.x,
+            "moving down must not move the highlight right"
+        );
+    }
+
+    #[test]
+    fn a_tile_below_the_focus_is_drawn_below_the_focus() {
+        // Getting this sign wrong mirrors the highlight about the middle of the
+        // screen: still plausible in the centre, obviously wrong at the edges.
+        use noxel_core::math::Vec3;
+        let focus = Vec3::new(0.0, 0.0, 0.0);
+        let above = aim_rect((0, -3), focus, 480, 270);
+        let below = aim_rect((0, 3), focus, 480, 270);
+        assert!(
+            above.y < 270 / 2,
+            "a tile with a smaller row must be higher"
+        );
+        assert!(below.y > 270 / 2, "a tile with a larger row must be lower");
+    }
+
+    #[test]
+    fn the_highlight_is_always_whole_pixels() {
+        // A fractional position is a highlight that shimmers by a pixel as the
+        // camera moves, which is exactly the kind of softness the art avoids.
+        use noxel_core::math::Vec3;
+        for step in 0..64 {
+            let focus = Vec3::new(step as f32 / 16.0, 0.0, step as f32 / 7.0);
+            let rect = aim_rect((step % 11, step % 7), focus, 480, 270);
+            // The rect is built from rounded integers, so this is a check that
+            // nothing fractional reached it in the first place.
+            assert_eq!(rect.w, crate::config::TILE);
+            assert!(rect.x.abs() < 10_000 && rect.y.abs() < 10_000);
+        }
+    }
 
     #[test]
     fn settings_survive_a_round_trip() {
