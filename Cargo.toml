@@ -1,0 +1,91 @@
+[package]
+name = "noxel-valley"
+description = "A playable top-down farming game built on the Noxel engine, and the reference project for its UI layer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "noxel_valley"
+path = "src/lib.rs"
+
+[[bin]]
+name = "noxel-valley"
+path = "src/main.rs"
+
+[features]
+default = []
+# Off by default so `cargo build` downloads nothing and the tests run anywhere.
+# The shipped game turns it on; see README.md.
+window = ["noxel-window/window", "dep:noxel-audio"]
+# Audio is useful headless too (rendering a soundtrack to a file), so it is a
+# separate feature that `window` turns on rather than being welded to it.
+audio = ["dep:noxel-audio", "noxel-audio/output"]
+
+[dependencies]
+noxel-core.workspace = true
+noxel-asset.workspace = true
+noxel-render.workspace = true
+noxel-camera.workspace = true
+noxel-window.workspace = true
+noxel-ui.workspace = true
+noxel-debug.workspace = true
+noxel-audio = { workspace = true, optional = true, features = ["output"] }
+noxel-app.workspace = true
+
+[dev-dependencies]
+# The in-memory font, so the game's tests do not need a baked atlas on disk.
+noxel-ui = { workspace = true, features = ["test-support"] }
+
+[workspace]
+resolver = "3"
+members = ["tools/artgen"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Noxel Valley Contributors"]
+description = "A playable top-down farming game built on the Noxel engine."
+
+[workspace.dependencies]
+# ---- Noxel, the engine ----------------------------------------------------
+#
+# Pinned to a revision rather than a branch: a game that silently picks up an
+# engine change on every build is a game that breaks on a Tuesday for no reason
+# anyone can point at. Bump this deliberately, and run the tests.
+#
+# Every engine dependency below points at the same revision. To develop against
+# a local engine checkout instead, replace `{ git = ..., rev = ... }` with
+# `{ path = "../noxel/crates/<name>" }` — that is the whole change.
+noxel-core = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-asset = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-render = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-camera = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-window = { git = "https://github.com/lait621/noxel", rev = "b66688b", default-features = false }
+noxel-ui = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-debug = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-app = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-gen = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+noxel-audio = { git = "https://github.com/lait621/noxel", rev = "b66688b" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = "symbols"
+debug = false
+overflow-checks = false
+
+[profile.dev]
+opt-level = 1
+debug = true
+overflow-checks = true
+
+[profile.dev.package."*"]
+opt-level = 3

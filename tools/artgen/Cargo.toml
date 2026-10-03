@@ -1,0 +1,22 @@
+[package]
+name = "noxel-valley-artgen"
+description = "Generates every sprite Noxel Valley draws: terrain, crops, props, characters and the UI atlas."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "noxel_valley_artgen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "valley-artgen"
+path = "src/main.rs"
+
+[dependencies]
+noxel-core.workspace = true
+noxel-asset.workspace = true
+noxel-gen.workspace = true

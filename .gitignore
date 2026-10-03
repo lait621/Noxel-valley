@@ -1,0 +1,16 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+*.pdb
+
+# Assembled runnable bundle from scripts/build-dist.sh
+/dist
+
+# Rendered frames from headless runs
+/frames
+
+# Python bytecode from the font bake
+__pycache__/
+*.pyc
+
+.DS_Store
