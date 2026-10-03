@@ -341,7 +341,7 @@ impl GameUi {
         let theme = self.ui.theme;
 
         let mut action = UiAction::None;
-        let height = 118;
+        let height = 136;
         let panel = screen.place((PANEL_WIDTH, height), noxel_ui::Anchor::Center, (0, 0));
         let inner = {
             let mut painter = self.ui.painter(framebuffer);
@@ -376,7 +376,7 @@ impl GameUi {
             ("退出", UiAction::Quit, true),
         ];
         for (index, (label, act, enabled)) in items.into_iter().enumerate() {
-            let rect = UiRect::new(inner.x + 24, y, inner.w - 48, 16);
+            let rect = UiRect::new(inner.x + 24, y, inner.w - 48, 18);
             let response = self.ui.button(
                 &mut painter,
                 input,
@@ -388,7 +388,7 @@ impl GameUi {
             if response.clicked {
                 action = act;
             }
-            y += 18;
+            y += 21;
         }
         let _ = assets;
         action
@@ -404,7 +404,7 @@ impl GameUi {
         let theme = self.ui.theme;
 
         let mut action = UiAction::None;
-        let panel = screen.place((190, 96), noxel_ui::Anchor::Center, (0, 0));
+        let panel = screen.place((190, 112), noxel_ui::Anchor::Center, (0, 0));
         let inner = {
             let mut painter = self.ui.painter(framebuffer);
             self.ui
@@ -441,7 +441,7 @@ impl GameUi {
             {
                 action = act;
             }
-            y += 16;
+            y += 19;
         }
         action
     }
@@ -456,7 +456,8 @@ impl GameUi {
         let theme = self.ui.theme;
 
         let mut action = UiAction::None;
-        let panel = screen.place((220, 104), noxel_ui::Anchor::Center, (0, 0));
+        let heading_height = self.heading_height("设置");
+        let panel = screen.place((248, heading_height + 92), noxel_ui::Anchor::Center, (0, 0));
         let inner = {
             let mut painter = self.ui.painter(framebuffer);
             self.ui
@@ -464,14 +465,14 @@ impl GameUi {
             panel.inset(theme.metrics.padding)
         };
         let mut painter = self.ui.painter(framebuffer);
-        self.ui.heading(
+        let used = self.title(
             &mut painter,
-            UiRect::new(inner.x, inner.y, inner.w, 24),
+            UiRect::new(inner.x, inner.y, inner.w, heading_height),
             "设置",
         );
 
         let row = "settings";
-        let mut y = inner.y + 28;
+        let mut y = inner.y + used as i32 + theme.metrics.gap;
 
         // -- volume: minus, a bar, plus ------------------------------------
         self.ui.label(
@@ -514,7 +515,7 @@ impl GameUi {
                 ..theme.bar
             },
         );
-        y += 18;
+        y += 21;
 
         // -- music ---------------------------------------------------------
         self.ui.label(
@@ -537,7 +538,7 @@ impl GameUi {
         {
             action = UiAction::SaveSettings;
         }
-        y += 18;
+        y += 21;
 
         // -- the aim highlight ---------------------------------------------
         self.ui.label(
@@ -560,9 +561,9 @@ impl GameUi {
         {
             action = UiAction::SaveSettings;
         }
-        y += 20;
+        y += 22;
 
-        let done = UiRect::new(inner.x + 30, y, inner.w - 60, 14);
+        let done = UiRect::new(inner.x + 30, y, inner.w - 60, 17);
         if self
             .ui
             .button(
@@ -652,7 +653,7 @@ impl GameUi {
         let theme = self.ui.theme;
 
         let mut action = UiAction::None;
-        let height = 30 + QUESTS.len() as u32 * 26 + 22;
+        let height = 34 + QUESTS.len() as u32 * 30 + 26;
         let panel = screen.place((248, height), noxel_ui::Anchor::Center, (0, 0));
         let inner = {
             let mut painter = self.ui.painter(framebuffer);
@@ -703,10 +704,10 @@ impl GameUi {
                 quest.detail(),
                 &TextStyle::new(theme.palette.text_dim),
             );
-            y += 26;
+            y += 30;
         }
 
-        let done = UiRect::new(inner.x + 40, y, inner.w - 80, 14);
+        let done = UiRect::new(inner.x + 40, y, inner.w - 80, 17);
         if self
             .ui
             .button(

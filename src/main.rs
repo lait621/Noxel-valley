@@ -1053,6 +1053,9 @@ impl Args {
                         "shop" => Screen::Shop,
                         "bin" | "shipping" => Screen::Bin,
                         "summary" => Screen::Summary,
+                        "pause" => Screen::Pause,
+                        "settings" => Screen::Settings,
+                        "quests" | "questbook" | "quest" => Screen::Quests,
                         other => return Err(format!("unknown screen {other:?}")),
                     });
                 }

@@ -190,13 +190,18 @@ impl GameUi {
     /// and a scale-2 Latin one is 18 — reserving 14 for both is how the heading
     /// ends up drawn through the first row of the panel beneath it.
     #[must_use]
-    fn heading_height(&self, text: &str) -> u32 {
+    pub(crate) fn heading_height(&self, text: &str) -> u32 {
         let style = TextStyle::new(self.ui.theme.palette.text_strong).with_scale(2);
         self.ui.font.measure(text, &style).1
     }
 
     /// Draws a panel title and returns the height it used.
-    fn title(&self, painter: &mut noxel_ui::Painter<'_>, rect: UiRect, text: &str) -> u32 {
+    pub(crate) fn title(
+        &self,
+        painter: &mut noxel_ui::Painter<'_>,
+        rect: UiRect,
+        text: &str,
+    ) -> u32 {
         self.ui.heading(painter, rect, text)
     }
 
@@ -532,7 +537,7 @@ impl GameUi {
             title,
         );
 
-        let close_rect = UiRect::new(inner.right() - 44, inner.y + 1, 44, 12);
+        let close_rect = UiRect::new(inner.right() - 52, inner.y + 1, 52, 16);
         if self
             .ui
             .button(
@@ -619,7 +624,7 @@ impl GameUi {
 
         let title = "种子商店";
         let title_height = self.heading_height(title);
-        let width = 240u32;
+        let width = 284u32;
         let height = (stock.len() as u32 + 1) * (metrics.row_height + 2)
             + title_height
             + metrics.gap as u32
@@ -798,7 +803,7 @@ impl GameUi {
         let metrics = theme.metrics;
         let title = "出货箱";
         let title_height = self.heading_height(title);
-        let panel = screen.place((220, 72 + title_height), Anchor::Center, (0, -6));
+        let panel = screen.place((252, 72 + title_height), Anchor::Center, (0, -6));
 
         {
             let mut painter = self.ui.modal_scrim(framebuffer);
@@ -985,29 +990,35 @@ impl GameUi {
             "雨天会替你把整片田浇好。作物在季节结束后会枯萎。",
         ];
         let mut painter = self.ui.modal_scrim(framebuffer);
-        let width = 300;
-        let height = lines.len() as u32 * 11 + 22;
+        // The line pitch is measured, not guessed. It used to be a literal 11
+        // against a 14-pixel line box, so every row overlapped the one below it,
+        // and the heading — which is scale 2 and therefore twice as tall as the
+        // space reserved for it — was drawn through the first two lines.
+        let style = TextStyle::new(theme.palette.text);
+        let line_height = self.ui.font.measure("操作", &style).1.max(1);
+        let heading_height = self.heading_height("操作说明");
+        let width = 352;
+        let height = heading_height
+            + metrics.gap as u32
+            + lines.len() as u32 * line_height
+            + metrics.padding.vertical().max(0) as u32;
         let panel = screen.place((width, height), Anchor::Center, (0, 0));
         painter.frame(assets.ui_texture(), &theme.panel, panel);
         let inner = panel.inset(metrics.padding);
-        self.ui.heading(
+        let used = self.title(
             &mut painter,
-            UiRect::new(inner.x, inner.y, inner.w, 12),
+            UiRect::new(inner.x, inner.y, inner.w, heading_height),
             "操作说明",
         );
-        let style = TextStyle::new(theme.palette.text);
-        for (index, line) in lines.iter().enumerate() {
+        let mut y = inner.y + used as i32 + metrics.gap;
+        for line in &lines {
             self.ui.label(
                 &mut painter,
-                UiRect::new(
-                    inner.x,
-                    inner.y + 16 + (index as u32 * 11) as i32,
-                    inner.w,
-                    10,
-                ),
+                UiRect::new(inner.x, y, inner.w, line_height),
                 line,
                 &style,
             );
+            y += line_height as i32;
         }
     }
 
