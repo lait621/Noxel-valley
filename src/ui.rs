@@ -552,6 +552,20 @@ impl GameUi {
                 if response.clicked {
                     action = UiAction::SelectSlot(index);
                 }
+                // The hotbar is a drop target as well as a toolbar: dragging a
+                // seed out of the bag and onto it is how you put something in
+                // your hand, and it is the gesture people try first.
+                if response.pressed && item.is_some() {
+                    self.drag_from = Some(index);
+                }
+                if input.primary_released {
+                    if let Some(from) = self.drag_from {
+                        if from != index {
+                            action = UiAction::MoveSlot(from, index);
+                        }
+                        self.drag_from = None;
+                    }
+                }
                 if response.hovered {
                     self.hovered_slot = Some(index);
                 }
@@ -674,6 +688,13 @@ impl GameUi {
                     self.drag_from = None;
                 }
             }
+        }
+
+        // Releasing over nothing — the gap between slots, the panel edge —
+        // puts the item back where it came from. A drop that silently does
+        // nothing is indistinguishable from a drag that never started.
+        if input.primary_released {
+            self.drag_from = None;
         }
 
         // Whatever is being dragged rides under the pointer, so the player can

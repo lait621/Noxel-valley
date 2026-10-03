@@ -92,6 +92,8 @@ struct Valley {
     quit: bool,
     /// The world seed in play, so a save can reproduce the farm's scatter.
     seed: u32,
+    /// How the weather looks, simulated in world space.
+    engine_weather: noxel_weather::Weather,
     /// The most recent tool use, for the log and for tests.
     last_action: Option<String>,
 }
@@ -165,6 +167,11 @@ impl Valley {
             last_report: None,
             quit: false,
             seed,
+            engine_weather: noxel_weather::Weather::new(seed)
+                // Wide and tall enough to cover a 480x270 view with room to
+                // spare, so a drop is never seen to appear out of nowhere.
+                .with_volume(34.0, 22.0, 24.0)
+                .with_capacity(700),
             last_action: None,
         };
         valley.rebuild(app, assets);
@@ -182,7 +189,20 @@ impl Valley {
 
     /// Whether it is raining hard enough to wet the ground.
     fn raining(&self) -> bool {
-        self.state.weather.today().waters_crops()
+        self.engine_weather.is_wet()
+    }
+
+    /// Keeps the engine's weather in step with the game's.
+    ///
+    /// The game decides *what* the weather is — which days are dry, what grows
+    /// — and the engine decides what it looks like. This is the only place the
+    /// two meet: a kind, an intensity, and wherever the camera is.
+    fn update_weather(&mut self, dt: f32, camera: Vec3) {
+        let today = self.state.weather.today();
+        if self.engine_weather.kind() != screens::engine_kind(today) {
+            self.engine_weather.set(screens::engine_kind(today), 1.0);
+        }
+        self.engine_weather.update(dt, camera);
     }
 
     /// Rebuilds the farm meshes if the map changed, or if the rain started or
@@ -444,6 +464,10 @@ impl Valley {
             self.end_day(day_over);
         }
 
+        self.update_weather(
+            dt,
+            Vec3::new(self.player.position.x, 0.0, self.player.position.y),
+        );
         self.villager.update(dt, &self.map);
         self.update_lighting(app);
         self.rebuild(app, assets);
@@ -620,7 +644,7 @@ impl Valley {
         self.game_ui
             .draw_held_item(framebuffer, &self.state, &self.player, assets, focus);
         self.game_ui
-            .draw_weather(framebuffer, self.state.weather.today());
+            .draw_weather(framebuffer, &self.engine_weather, focus);
         self.game_ui.end();
     }
 
@@ -628,7 +652,9 @@ impl Valley {
         match action {
             UiAction::None => {}
             UiAction::SelectSlot(index) => self.state.selected = index,
-            UiAction::MoveSlot(from, to) => self.state.inventory.swap(from, to),
+            UiAction::MoveSlot(from, to) => {
+                self.state.inventory.move_to(from, to);
+            }
             UiAction::BuySeed(crop, quantity) => {
                 let cost = crop.seed_price * quantity;
                 if self.state.inventory.free_slots() == 0 {

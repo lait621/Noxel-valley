@@ -38,6 +38,7 @@ noxel-window.workspace = true
 noxel-ui.workspace = true
 noxel-debug.workspace = true
 noxel-audio = { workspace = true, optional = true, features = ["output"] }
+noxel-weather.workspace = true
 noxel-app.workspace = true
 
 [dev-dependencies]
@@ -66,16 +67,17 @@ description = "A playable top-down farming game built on the Noxel engine."
 # Every engine dependency below points at the same revision. To develop against
 # a local engine checkout instead, replace `{ git = ..., rev = ... }` with
 # `{ git = "https://github.com/lait621/noxel", rev = "8487460" }` — that is the whole change.
-noxel-core = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-asset = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-render = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-camera = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-window = { git = "https://github.com/lait621/noxel", rev = "8487460", default-features = false }
-noxel-ui = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-debug = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-app = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-gen = { git = "https://github.com/lait621/noxel", rev = "8487460" }
-noxel-audio = { git = "https://github.com/lait621/noxel", rev = "8487460" }
+noxel-core = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-asset = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-render = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-camera = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-window = { git = "https://github.com/lait621/noxel", rev = "40a4e2e", default-features = false }
+noxel-ui = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-debug = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-app = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-gen = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-audio = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
+noxel-weather = { git = "https://github.com/lait621/noxel", rev = "40a4e2e" }
 
 [profile.release]
 opt-level = 3

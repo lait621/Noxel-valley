@@ -11,6 +11,7 @@
 //! layer is what keeps it crisp, correctly layered, and free of a texture.
 
 use noxel_core::math::Color8;
+use noxel_core::math::Vec3;
 use noxel_render::framebuffer::Framebuffer;
 use noxel_ui::theme::BarStyle;
 use noxel_ui::{Id, TextStyle, UiInput, UiRect};
@@ -738,7 +739,7 @@ impl GameUi {
         state: &crate::sim::GameState,
         player: &crate::player::Player,
         assets: &Assets,
-        focus: noxel_core::math::Vec3,
+        focus: Vec3,
     ) {
         let Some(item) = state
             .inventory
@@ -781,7 +782,7 @@ impl GameUi {
         framebuffer: &mut Framebuffer,
         state: &crate::sim::GameState,
         player: &crate::player::Player,
-        focus: noxel_core::math::Vec3,
+        focus: Vec3,
     ) {
         if !self.settings.highlight || self.screen != Screen::Playing || self.help_open {
             return;
@@ -890,12 +891,7 @@ pub fn hint(
 /// differ by up to half a tile while walking, and the highlight drifts from the
 /// tile the tool acts on by exactly that much.
 #[must_use]
-pub fn aim_rect(
-    tile: (i32, i32),
-    focus: noxel_core::math::Vec3,
-    width: u32,
-    height: u32,
-) -> UiRect {
+pub fn aim_rect(tile: (i32, i32), focus: Vec3, width: u32, height: u32) -> UiRect {
     let size = crate::config::TILE;
     let scale = size as f32;
     let centre_x = (tile.0 as f32 + 0.5 - focus.x) * scale + width as f32 * 0.5;
@@ -945,86 +941,122 @@ pub fn mood_for(season: Season, weather: Weather, hour: f32) -> &'static str {
 /// The weather was simulated and invisible: it changed what grew and how bright
 /// the light was, and the only way to know it was raining was to read the icon
 /// in the clock panel. That is a spreadsheet, not weather.
+/// The engine's kind for one of the game's.
+///
+/// The game owns what the weather *means* — which days are dry, when the crops
+/// grow — and the engine owns what it looks like. This is the whole of the
+/// translation between them.
+#[must_use]
+pub fn engine_kind(weather: crate::config::Weather) -> noxel_weather::Kind {
+    use crate::config::Weather as W;
+    match weather {
+        W::Sunny => noxel_weather::Kind::Clear,
+        W::Cloudy => noxel_weather::Kind::Cloudy,
+        W::Rain => noxel_weather::Kind::Rain,
+        W::Storm => noxel_weather::Kind::Storm,
+        W::Snow => noxel_weather::Kind::Snow,
+    }
+}
+
 impl GameUi {
     /// Advances the weather animation.
     pub fn tick_weather(&mut self, dt: f32) {
         self.weather_phase = (self.weather_phase + dt) % 64.0;
     }
 
-    /// Draws rain, snow or a storm over the world.
+    /// Draws the engine's precipitation, projected from world space.
     ///
-    /// In the interface layer, over everything: rain is *between* the camera and
-    /// the farm, so nothing in the world may occlude it. The scatter is a pair
-    /// of co-prime strides off the frame counter rather than a random number
-    /// generator, so it is deterministic and needs no state.
-    pub fn draw_weather(&mut self, framebuffer: &mut Framebuffer, weather: crate::config::Weather) {
-        use crate::config::Weather;
-        if matches!(weather, Weather::Sunny | Weather::Cloudy) {
+    /// This used to be a screen-space particle loop, and it looked it: the
+    /// streaks did not move when the camera did, they all fell at one flat
+    /// speed, and they never landed. Everything here comes from
+    /// `noxel-weather`, which simulates drops in the world — so the rain now
+    /// moves with the camera, has a near layer and a far one, and splashes where
+    /// it hits the ground.
+    ///
+    /// The projection is the renderer's own: one world unit is `TILE` pixels
+    /// and the camera focus is the centre of the frame. Height lifts a drop up
+    /// the screen, which is what makes it read as falling towards the viewer
+    /// rather than sliding down the glass.
+    pub fn draw_weather(
+        &mut self,
+        framebuffer: &mut Framebuffer,
+        weather: &noxel_weather::Weather,
+        focus: Vec3,
+    ) {
+        use noxel_weather::Kind;
+        if weather.drops().is_empty() && weather.splashes().is_empty() {
             return;
         }
-        let (width, height) = (framebuffer.width() as i32, framebuffer.height() as i32);
-        let phase = self.weather_phase;
+        let tile = crate::config::TILE as f32;
+        let (width, height) = (framebuffer.width(), framebuffer.height());
+        let (half_w, half_h) = (width as f32 * 0.5, height as f32 * 0.5);
+        let project = |p: Vec3| {
+            (
+                (p.x - focus.x) * tile + half_w,
+                (p.z - focus.z) * tile + half_h - p.y * tile,
+            )
+        };
+
+        let wind = weather.wind();
+        let (wind_x, wind_z) = wind.push(weather.kind().wind_response());
+        let snow = weather.kind() == Kind::Snow;
         let mut painter = self.ui.painter(framebuffer);
 
-        match weather {
-            Weather::Rain | Weather::Storm => {
-                let heavy = weather == Weather::Storm;
-                let count = if heavy { 96 } else { 54 };
-                // Slanted, because vertical rain reads as static. The slant is
-                // what tells the eye it is falling rather than hanging.
-                let slant = if heavy { 3 } else { 2 };
-                let speed = if heavy { 150.0 } else { 110.0 };
-                let length = if heavy { 9 } else { 6 };
-                let colour = if heavy {
-                    Color8::new(150, 180, 220, 150)
-                } else {
-                    Color8::new(160, 190, 220, 110)
-                };
-                for index in 0..count {
-                    let seed = index as f32 * 37.7;
-                    let x = ((seed * 7.3).fract() * width as f32) as i32;
-                    let y =
-                        ((seed * 3.1 + phase * speed).fract() * (height as f32 + 24.0)) as i32 - 12;
-                    for step in 0..length {
-                        painter.fill(
-                            UiRect::new(x + step * slant / length, y + step, 1, 1),
-                            colour,
-                        );
-                    }
-                    if heavy {
-                        // A slower second layer, which is what gives the storm
-                        // depth instead of a flat sheet of streaks.
-                        let far = ((seed * 5.7 + phase * speed * 0.6).fract()
-                            * (height as f32 + 24.0)) as i32
-                            - 12;
-                        for step in 0..5 {
-                            painter.fill(
-                                UiRect::new(x + 13 + step, far + step, 1, 1),
-                                Color8::new(140, 165, 205, 90),
-                            );
-                        }
-                    }
-                }
+        // The splashes first, so a drop is drawn over the ring it makes.
+        for splash in weather.splashes() {
+            let (x, y) = project(splash.position);
+            let alpha = (splash.alpha() * 255.0) as u8;
+            if alpha == 0 {
+                continue;
             }
-            Weather::Snow => {
-                for index in 0..72 {
-                    let seed = index as f32 * 23.9;
-                    let drift = (phase * 0.9 + seed).sin() * 6.0;
-                    let x = ((seed * 11.1).fract() * width as f32) as i32 + drift as i32;
-                    let y =
-                        ((seed * 4.3 + phase * 26.0).fract() * (height as f32 + 12.0)) as i32 - 6;
-                    // Snow drifts rather than falls: a flake takes its time.
-                    painter.fill(UiRect::new(x, y, 1, 1), Color8::new(232, 238, 248, 170));
-                    if index % 3 == 0 {
-                        painter.fill(UiRect::new(x + 1, y, 1, 1), Color8::new(232, 238, 248, 120));
-                    }
-                }
+            let radius = 1.0 + splash.spread() * (1.5 + 2.5 * splash.depth);
+            let colour = Color8::new(190, 214, 238, alpha);
+            // A ring drawn as four short runs rather than a filled disc: a
+            // filled disc at this size is a dot, and a dot is not a splash.
+            let r = radius.round() as i32;
+            for (dx, dy) in [(-r, 0), (r, 0), (0, -r / 2), (0, r / 2)] {
+                painter.fill(
+                    UiRect::new(x.round() as i32 + dx, y.round() as i32 + dy, 1, 1),
+                    colour,
+                );
             }
-            _ => {}
+        }
+
+        for drop in weather.drops() {
+            let (x, y) = project(drop.position);
+            if x < -8.0 || y < -8.0 || x > width as f32 + 8.0 || y > height as f32 + 8.0 {
+                continue;
+            }
+            let alpha = (drop.alpha() * 235.0) as u8;
+            // Snow is drawn brighter and fatter than a raindrop of the same
+            // depth. A single faint pixel vanishes against a busy farm, and a
+            // flake is a *thing* where a raindrop is a streak of light.
+            let colour = if snow {
+                Color8::new(248, 251, 255, alpha.max(150))
+            } else {
+                Color8::new(176, 202, 232, alpha)
+            };
+            // The streak points along the drop's screen velocity, so the wind
+            // that moves it is also the wind you see. Screen velocity is the
+            // world velocity put through the projection: `z` grows *down* the
+            // screen and `y` grows up it, so a drop falling at `speed` while
+            // the wind pushes it in `z` moves down the screen at their sum.
+            let velocity = (wind_x, wind_z + drop.speed);
+            let magnitude = (velocity.0 * velocity.0 + velocity.1 * velocity.1)
+                .sqrt()
+                .max(0.001);
+            let (dx, dy) = (velocity.0 / magnitude, velocity.1 / magnitude);
+            let steps = (drop.length * tile).round().max(1.0) as i32;
+            for step in 1..=steps {
+                // From the drop backwards along its path: the tail is where it
+                // came from.
+                let x = (x - dx * step as f32).round() as i32;
+                let y = (y - dy * step as f32).round() as i32;
+                painter.fill(UiRect::new(x, y, 1, 1), colour);
+            }
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

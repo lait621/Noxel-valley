@@ -507,16 +507,50 @@ impl Inventory {
         removed
     }
 
-    /// Exchanges the contents of two slots.
+    /// Puts what is in `from` into `to`.
     ///
-    /// What dragging in the bag does. Two slots rather than an insert, because
-    /// an insert that shifts everything along is a bag that rearranges itself
-    /// while the player is looking at it.
-    pub fn swap(&mut self, a: usize, b: usize) {
-        if a == b || a >= self.slots.len() || b >= self.slots.len() {
-            return;
+    /// Dragging does what the player means by dropping something somewhere:
+    ///
+    /// * an empty slot **takes** it, which is what dragging into a gap is,
+    ///   and does not leave a hole behind;
+    /// * a slot holding the same thing **merges** up to the stack limit, so
+    ///   tidying two half-stacks into one is one gesture rather than three;
+    /// * anything else **swaps**, because a drop onto an occupied slot with no
+    ///   room has to put the two somewhere and the player is looking at both.
+    ///
+    /// The old version always swapped, so dragging a stack into an empty slot
+    /// left an empty slot where it had been and looked like nothing happened.
+    ///
+    /// Returns whether anything moved.
+    pub fn move_to(&mut self, from: usize, to: usize) -> bool {
+        if from == to || from >= self.slots.len() || to >= self.slots.len() {
+            return false;
         }
-        self.slots.swap(a, b);
+        let (Some(source), Some(target)) = (self.slots[from], self.slots[to]) else {
+            // One of them is empty: a plain exchange is exactly right, and it
+            // clears the hole the item came out of.
+            self.slots.swap(from, to);
+            return true;
+        };
+        if source.item == target.item {
+            let max = source.item.max_stack();
+            let room = max.saturating_sub(target.count);
+            if room > 0 {
+                let moved = room.min(source.count);
+                if let Some(target) = self.slots[to].as_mut() {
+                    target.count += moved;
+                }
+                let left = source.count - moved;
+                if left == 0 {
+                    self.slots[from] = None;
+                } else if let Some(source) = self.slots[from].as_mut() {
+                    source.count = left;
+                }
+                return true;
+            }
+        }
+        self.slots.swap(from, to);
+        true
     }
 
     /// The slot holding an item, if any.

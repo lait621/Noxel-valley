@@ -724,7 +724,7 @@ dependencies = [
 [[package]]
 name = "noxel-app"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-camera",
@@ -741,7 +741,7 @@ dependencies = [
 [[package]]
 name = "noxel-asset"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
 ]
@@ -749,7 +749,7 @@ dependencies = [
 [[package]]
 name = "noxel-audio"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "cpal",
  "noxel-core",
@@ -758,7 +758,7 @@ dependencies = [
 [[package]]
 name = "noxel-camera"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
  "noxel-render",
@@ -767,12 +767,12 @@ dependencies = [
 [[package]]
 name = "noxel-core"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 
 [[package]]
 name = "noxel-debug"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-core",
@@ -782,7 +782,7 @@ dependencies = [
 [[package]]
 name = "noxel-ecs"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
 ]
@@ -790,7 +790,7 @@ dependencies = [
 [[package]]
 name = "noxel-gen"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-core",
@@ -799,7 +799,7 @@ dependencies = [
 [[package]]
 name = "noxel-npc"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
  "noxel-ecs",
@@ -810,7 +810,7 @@ dependencies = [
 [[package]]
 name = "noxel-physics"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
 ]
@@ -818,7 +818,7 @@ dependencies = [
 [[package]]
 name = "noxel-render"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-core",
@@ -827,7 +827,7 @@ dependencies = [
 [[package]]
 name = "noxel-ui"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-core",
@@ -846,6 +846,7 @@ dependencies = [
  "noxel-debug",
  "noxel-render",
  "noxel-ui",
+ "noxel-weather",
  "noxel-window",
 ]
 
@@ -861,7 +862,7 @@ dependencies = [
 [[package]]
 name = "noxel-visibility"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-camera",
  "noxel-core",
@@ -870,9 +871,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "noxel-weather"
+version = "0.1.0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
+dependencies = [
+ "noxel-core",
+]
+
+[[package]]
 name = "noxel-window"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-core",
  "noxel-render",
@@ -883,7 +892,7 @@ dependencies = [
 [[package]]
 name = "noxel-world"
 version = "0.1.0"
-source = "git+https://github.com/lait621/noxel?rev=8487460#8487460809e974bc22ecdde65763f3e6aef521e0"
+source = "git+https://github.com/lait621/noxel?rev=40a4e2e#40a4e2eb541d83de39ca3ec2172727c906cf89ef"
 dependencies = [
  "noxel-asset",
  "noxel-core",
