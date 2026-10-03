@@ -1202,8 +1202,6 @@ fn run_headless(args: &Args, mut app: App, valley: Rc<RefCell<Valley>>) -> Resul
 /// Opens a window and plays.
 #[cfg(feature = "window")]
 fn run_window(args: &Args, app: App, valley: Rc<RefCell<Valley>>) -> Result<(), String> {
-    use noxel_ui::UiInputBuilder;
-
     struct Game {
         app: App,
         valley: Rc<RefCell<Valley>>,
@@ -1217,22 +1215,7 @@ fn run_window(args: &Args, app: App, valley: Rc<RefCell<Valley>>) -> Result<(), 
 
     impl noxel_window::Host for Game {
         fn step(&mut self, dt: f32, input: &noxel_window::Input) -> &Framebuffer {
-            // One conversion, in one place: the window host has already mapped
-            // the cursor into framebuffer pixels using the same presentation the
-            // upscale uses, so a hit test here is in the space the UI draws in.
-            self.input = UiInputBuilder::new()
-                .at(input.cursor.0, input.cursor.1)
-                .build();
-            self.input.pointer_inside = input.cursor_inside;
-            self.input.primary_down = input.mouse_buttons[0];
-            self.input.primary_pressed = input.mouse_pressed[0];
-            self.input.primary_released = input.mouse_released[0];
-            self.input.secondary_pressed = input.mouse_pressed[2];
-            self.input.scroll = input.scroll;
-            self.input.shift = input.shift;
-            self.input.control = input.control;
-            self.input.alt = input.alt;
-            self.input.keys_held = input.held().to_vec();
+            self.input = ui_input(input);
             self.input.keys_pressed = input.pressed().to_vec();
 
             self.valley.borrow_mut().input = self.input.clone();
@@ -1307,6 +1290,35 @@ fn run_window(args: &Args, app: App, valley: Rc<RefCell<Valley>>) -> Result<(), 
     noxel_window::run(config, game).map_err(|error| error.to_string())
 }
 
+/// Converts the window host's input into what the interface reads.
+///
+/// One conversion in one place, and extracted so it can be tested. It used to
+/// be eight lines inside the frame loop, which meant the only thing standing
+/// between a physical click and a button was the one piece of code no test
+/// could reach — and when every button in the game stopped responding, that was
+/// exactly where to look and nowhere to look *with*.
+///
+/// The host has already mapped the cursor into framebuffer pixels using the
+/// presentation the upscale uses, so a hit test here is in the space the
+/// interface draws in.
+#[cfg(feature = "window")]
+fn ui_input(input: &noxel_window::Input) -> noxel_ui::UiInput {
+    let mut ui = noxel_ui::UiInputBuilder::new()
+        .at(input.cursor.0, input.cursor.1)
+        .build();
+    ui.pointer_inside = input.cursor_inside;
+    ui.primary_down = input.mouse_buttons[0];
+    ui.primary_pressed = input.mouse_pressed[0];
+    ui.primary_released = input.mouse_released[0];
+    ui.secondary_pressed = input.mouse_pressed[2];
+    ui.scroll = input.scroll;
+    ui.shift = input.shift;
+    ui.control = input.control;
+    ui.alt = input.alt;
+    ui.keys_held = input.held().to_vec();
+    ui
+}
+
 /// Starts the soundtrack, if this build has one and the machine has a device.
 ///
 /// A machine with no sound card should still be able to play the game, so a
@@ -1347,7 +1359,6 @@ fn run_window(_args: &Args, _app: App, _valley: Rc<RefCell<Valley>>) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noxel_ui::UiInputBuilder;
     use noxel_valley::config::TILE;
 
     #[test]
@@ -1373,6 +1384,211 @@ mod tests {
         assert_eq!(args.seed, 0xAB);
         assert!(args.fast);
         assert!(args.stats);
+    }
+
+    /// Drives one real frame of the real game with real window input.
+    ///
+    /// Everything below this line is the path a physical click takes: the
+    /// window host's `Input`, the conversion into what the interface reads, the
+    /// interface's own state machine, and the action the game applies. Every
+    /// other UI test in this repository starts after the conversion, which is
+    /// how a bug that stopped *every button in the game* from responding stayed
+    /// invisible to a green test suite.
+    #[cfg(feature = "window")]
+    fn frame(valley: &Rc<RefCell<Valley>>, app: &mut App, input: &noxel_window::Input) {
+        valley.borrow_mut().input = ui_input(input);
+        valley.borrow_mut().input.keys_pressed = input.pressed().to_vec();
+        app.step(1.0 / 60.0);
+    }
+
+    #[cfg(feature = "window")]
+    fn window_input(cursor: (f32, f32)) -> noxel_window::Input {
+        let mut input = noxel_window::Input::default();
+        input.cursor = cursor;
+        // What the host sets from `CursorMoved`. A click with this false is a
+        // click the interface is not allowed to see.
+        input.cursor_inside = true;
+        input
+    }
+
+    #[test]
+    #[cfg(feature = "window")]
+    fn a_real_click_on_a_real_button_reaches_the_game() {
+        let assets = Rc::new(Assets::empty());
+        let mut app = build_app(&Args::default(), &assets).expect("the app must build");
+        let valley = Rc::new(RefCell::new(Valley::new(&mut app, 1, &assets, false)));
+        // The plugin is what makes the frame loop call the game's `draw`, and
+        // `draw` is where every widget runs. A test that builds the app without
+        // it exercises nothing at all — which is how this test passed its first
+        // draft while proving nothing.
+        app.add_plugin(ValleyPlugin {
+            valley: Rc::clone(&valley),
+            assets: Rc::clone(&assets),
+        });
+        assert_eq!(valley.borrow().game_ui.screen, Screen::Title);
+
+        // Find a row that starts a new farm, by probing down the panel.
+        let mut pressed_at = None;
+        for y in (60..190).step_by(2) {
+            {
+                let mut v = valley.borrow_mut();
+                v.game_ui.screen = Screen::Title;
+                let mut down = window_input((240.0, y as f32));
+                down.mouse_buttons[0] = true;
+                down.mouse_pressed[0] = true;
+                v.input = ui_input(&down);
+                v.input.keys_pressed.clear();
+            }
+            app.step(1.0 / 60.0);
+            let mut up = window_input((240.0, y as f32));
+            up.mouse_released[0] = true;
+            frame(&valley, &mut app, &up);
+            if y == 124 || y == 126 {
+                let v = valley.borrow();
+                eprintln!(
+                    "DEBUG y={y} screen={:?} modal={} pointer_over={} inside={} cursor={:?}",
+                    v.game_ui.screen,
+                    v.game_ui.ui.state.is_modal(),
+                    v.game_ui.ui.state.pointer_over_ui(),
+                    v.input.pointer_inside,
+                    (v.input.pointer.0, v.input.pointer.1)
+                );
+            }
+            if valley.borrow().game_ui.screen != Screen::Title {
+                pressed_at = Some(y);
+                break;
+            }
+            // Reset the interface's capture between probes.
+            frame(&valley, &mut app, &window_input((240.0, y as f32)));
+        }
+        assert!(
+            pressed_at.is_some(),
+            "no row of the start menu answered a real click"
+        );
+        assert_eq!(
+            valley.borrow().game_ui.screen,
+            Screen::Playing,
+            "the button was pressed but the game did not act on it"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "window")]
+    fn a_real_click_buys_a_seed_in_the_shop() {
+        // The second screen, because "none of the buttons work" deserves more
+        // than one screen's worth of evidence.
+        let assets = Rc::new(Assets::empty());
+        let mut app = build_app(&Args::default(), &assets).expect("the app must build");
+        let valley = Rc::new(RefCell::new(Valley::new(&mut app, 1, &assets, false)));
+        app.add_plugin(ValleyPlugin {
+            valley: Rc::clone(&valley),
+            assets: Rc::clone(&assets),
+        });
+        valley.borrow_mut().game_ui.screen = Screen::Shop;
+
+        let gold_before = valley.borrow().state.inventory.gold();
+        let seeds_before: u32 = noxel_valley::config::CROPS
+            .iter()
+            .map(|c| {
+                valley
+                    .borrow()
+                    .state
+                    .inventory
+                    .count_of(noxel_valley::sim::Item::Seed(c))
+            })
+            .sum();
+
+        // Sweep the whole frame for a row whose "buy" button works.
+        let mut bought = false;
+        'outer: for y in (60..260).step_by(3) {
+            for x in (150..470).step_by(6) {
+                {
+                    let mut v = valley.borrow_mut();
+                    v.game_ui.screen = Screen::Shop;
+                    let mut down = window_input((x as f32, y as f32));
+                    down.mouse_buttons[0] = true;
+                    down.mouse_pressed[0] = true;
+                    v.input = ui_input(&down);
+                    v.input.keys_pressed.clear();
+                }
+                app.step(1.0 / 60.0);
+                let mut up = window_input((x as f32, y as f32));
+                up.mouse_released[0] = true;
+                frame(&valley, &mut app, &up);
+                if valley.borrow().state.inventory.gold() != gold_before {
+                    bought = true;
+                    break 'outer;
+                }
+                frame(&valley, &mut app, &window_input((x as f32, y as f32)));
+            }
+        }
+
+        let seeds_after: u32 = noxel_valley::config::CROPS
+            .iter()
+            .map(|c| {
+                valley
+                    .borrow()
+                    .state
+                    .inventory
+                    .count_of(noxel_valley::sim::Item::Seed(c))
+            })
+            .sum();
+        assert!(
+            bought && seeds_after > seeds_before,
+            "the shop's buy button did nothing"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "window")]
+    fn a_click_is_not_seen_when_the_cursor_is_outside_the_window() {
+        // `Input::cursor_inside` is false before the first mouse move and after
+        // the cursor leaves. The interface must not act on a click it cannot
+        // place, which is the difference between "no button works" and "no
+        // button works until you move the mouse".
+        let mut input = window_input((240.0, 150.0));
+        let inside = ui_input(&input);
+        assert!(
+            inside.pointer_inside,
+            "a cursor in the window must be usable"
+        );
+        input.cursor_inside = false;
+        assert!(!ui_input(&input).pointer_inside);
+        assert!(
+            !ui_input(&window_input((240.0, 150.0)))
+                .pointer_over(noxel_ui::UiRect::new(0, 0, 480, 270))
+                == false,
+            "a cursor inside the window must be able to hover something"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "window")]
+    fn every_mouse_button_the_game_uses_survives_the_conversion() {
+        // A transposed index here is a click that does nothing, with no error
+        // anywhere: the interface simply never sees a press.
+        let mut input = window_input((10.0, 10.0));
+        input.mouse_buttons[0] = true;
+        input.mouse_pressed[0] = true;
+        input.mouse_released[0] = true;
+        input.mouse_pressed[2] = true;
+        input.shift = true;
+        let converted = ui_input(&input);
+        assert!(
+            converted.primary_down,
+            "the left button's level was dropped"
+        );
+        assert!(converted.primary_pressed, "the left press edge was dropped");
+        assert!(
+            converted.primary_released,
+            "the left release edge was dropped"
+        );
+        assert!(
+            converted.secondary_pressed,
+            "the right press edge was dropped"
+        );
+        assert!(converted.shift, "shift was dropped");
+        assert!(converted.pointer_inside);
     }
 
     #[test]
@@ -1444,7 +1660,7 @@ mod tests {
 
     #[test]
     fn the_movement_axis_combines_wasd_and_the_arrows() {
-        let mut input = UiInputBuilder::new().key(KEY_D).key(KEY_UP).build();
+        let mut input = noxel_ui::UiInputBuilder::new().key(KEY_D).key(KEY_UP).build();
         assert_eq!(movement_axis(&input), (1.0, -1.0));
         input.keys_held = vec![KEY_A, KEY_D];
         assert_eq!(movement_axis(&input).0, 0.0, "opposite keys cancel");

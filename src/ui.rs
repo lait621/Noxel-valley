@@ -72,11 +72,8 @@ impl Screen {
     /// A modal darkens the world, blocks the pointer everywhere, and is the only
     /// kind of screen drawn over another one.
     #[must_use]
-    pub const fn is_modal(self) -> bool {
-        matches!(
-            self,
-            Self::Title | Self::Pause | Self::Settings | Self::Quests | Self::Summary
-        )
+    pub const fn owns_the_frame(self) -> bool {
+        !matches!(self, Self::Playing | Self::Dialogue)
     }
 }
 
@@ -234,12 +231,17 @@ impl GameUi {
 
         // The HUD first, so its rectangles are the ones the world click has to
         // avoid. Then the overlay, then everything that floats above both.
-        // A modal screen darkens the world *and* blocks the pointer, so the
-        // scrim goes on before the HUD — otherwise a clock or a hotbar behind
-        // the menu would still answer a click. It is lifted again before the
-        // dialog draws its own buttons, because the modal flag refuses to hover
-        // anything at all while it is set.
-        let modal = self.screen.is_modal();
+        // A screen that owns the frame darkens the world *and* blocks the
+        // pointer, so the scrim goes on before the HUD — otherwise a clock or a
+        // hotbar behind the menu would still answer a click. It is lifted again
+        // before the screen draws its own buttons, because the modal flag
+        // refuses to hover anything at all while it is set.
+        //
+        // This is the *only* place a scrim is drawn, and the lifting is the
+        // important half: the flag is per-frame state that survives, so a screen
+        // that raised it without lowering it took every button in the game down
+        // with it — permanently, and from the first time it was opened.
+        let modal = self.screen.owns_the_frame() || self.help_open;
         if modal {
             self.ui.modal_scrim(framebuffer);
         }
@@ -286,7 +288,12 @@ impl GameUi {
     /// on a click.
     #[must_use]
     pub fn captures_pointer(&self) -> bool {
-        self.ui.state.pointer_over_ui()
+        // A screen that owns the frame captures the pointer *everywhere*, not
+        // only where a widget happens to be. The modal flag cannot answer this
+        // on its own: it is lifted before the screen's own widgets are drawn, so
+        // that they can be clicked at all, and by then it no longer knows about
+        // the empty space around them.
+        self.ui.state.pointer_over_ui() || self.screen.owns_the_frame() || self.help_open
     }
 
     // -- HUD ----------------------------------------------------------------
@@ -522,7 +529,7 @@ impl GameUi {
 
         let panel = screen.place((width, height), Anchor::Center, (0, -8));
         {
-            let mut painter = self.ui.modal_scrim(framebuffer);
+            let mut painter = self.ui.painter(framebuffer);
             painter.frame(assets.ui_texture(), &theme.panel, panel);
         }
 
@@ -632,7 +639,7 @@ impl GameUi {
         let panel = screen.place((width, height), Anchor::Center, (0, -6));
 
         {
-            let mut painter = self.ui.modal_scrim(framebuffer);
+            let mut painter = self.ui.painter(framebuffer);
             painter.frame(assets.ui_texture(), &theme.panel, panel);
         }
 
@@ -806,7 +813,7 @@ impl GameUi {
         let panel = screen.place((252, 72 + title_height), Anchor::Center, (0, -6));
 
         {
-            let mut painter = self.ui.modal_scrim(framebuffer);
+            let mut painter = self.ui.painter(framebuffer);
             painter.frame(assets.ui_texture(), &theme.panel, panel);
         }
         let mut painter = self.ui.painter(framebuffer);
@@ -905,7 +912,7 @@ impl GameUi {
         let metrics = theme.metrics;
         let panel = screen.place((200, 92), Anchor::Center, (0, -6));
         {
-            let mut painter = self.ui.modal_scrim(framebuffer);
+            let mut painter = self.ui.painter(framebuffer);
             painter.frame(assets.ui_texture(), &theme.panel, panel);
         }
 
@@ -989,7 +996,7 @@ impl GameUi {
             "锄头翻土 → 播种 → 每天浇水 → 成熟后收割",
             "雨天会替你把整片田浇好。作物在季节结束后会枯萎。",
         ];
-        let mut painter = self.ui.modal_scrim(framebuffer);
+        let mut painter = self.ui.painter(framebuffer);
         // The line pitch is measured, not guessed. It used to be a literal 11
         // against a 14-pixel line box, so every row overlapped the one below it,
         // and the heading — which is scale 2 and therefore twice as tall as the
