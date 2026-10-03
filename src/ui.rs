@@ -171,6 +171,12 @@ impl GameUi {
         self.toast = Some((message.into(), 3.0));
     }
 
+    /// What the toast is saying, if anything.
+    #[must_use]
+    pub fn toast_text(&self) -> Option<&str> {
+        self.toast.as_ref().map(|(text, _)| text.as_str())
+    }
+
     /// Advances the toast timer.
     pub fn tick(&mut self, dt: f32) {
         if let Some((_, remaining)) = self.toast.as_mut() {
@@ -458,8 +464,10 @@ impl GameUi {
         // -- the hotbar ------------------------------------------------------
         {
             let mut painter = self.ui.painter(framebuffer);
-            for index in 0..HOTBAR_SLOTS {
-                let rect = hotbar_slot(hotbar, index);
+            let offset = hotbar_offset(state.selected);
+            for position in 0..HOTBAR_SLOTS {
+                let index = offset + position;
+                let rect = hotbar_slot(hotbar, position);
                 let selected = index == state.selected;
                 let item = state.inventory.slots().get(index).and_then(|slot| *slot);
                 let content = item.and_then(|slot| item_sprite(assets, slot.item));
@@ -467,7 +475,7 @@ impl GameUi {
                     &mut painter,
                     input,
                     rect,
-                    Id::new("hotbar").index(index),
+                    Id::new("hotbar").index(position),
                     content,
                     SlotState {
                         selected,
@@ -1152,6 +1160,20 @@ pub fn hotbar_rect(screen: UiRect) -> UiRect {
     )
 }
 
+/// The first bag slot the hotbar is showing.
+///
+/// The hotbar used to be the first six slots of the bag and nothing else, which
+/// meant a bought seed — which lands in the first *free* slot, and the six tools
+/// are never free — went somewhere the player could neither see nor select. The
+/// seed was in the bag, the gold was gone, and there was no way to plant it.
+///
+/// The window scrolls just far enough to include the selection and no further,
+/// so it is still the first six slots until the player reaches past them.
+#[must_use]
+pub fn hotbar_offset(selected: usize) -> usize {
+    selected.saturating_sub(crate::config::HOTBAR_SLOTS - 1)
+}
+
 /// One hotbar slot's rectangle.
 #[must_use]
 pub fn hotbar_slot(hotbar: UiRect, index: usize) -> UiRect {
@@ -1303,6 +1325,57 @@ mod tests {
             .filter(|c| c[0] > 0.01)
             .count();
         assert!(lit > 2000, "the HUD drew almost nothing: {lit} pixels");
+    }
+
+    #[test]
+    fn the_hotbar_window_follows_the_selection_into_the_bag() {
+        // The tools occupy the first six slots and are never free, so a bought
+        // seed always lands past them. While the hotbar was the first six slots
+        // and nothing else, that seed was in the bag, the gold was gone, and
+        // there was no way to plant it.
+        assert_eq!(hotbar_offset(0), 0);
+        assert_eq!(
+            hotbar_offset(5),
+            0,
+            "the first six slots are still the first six"
+        );
+        assert_eq!(hotbar_offset(6), 1);
+        assert_eq!(hotbar_offset(9), 4);
+        // The selected slot is always inside the window the offset describes.
+        for selected in 0..crate::config::INVENTORY_SLOTS {
+            let offset = hotbar_offset(selected);
+            assert!(
+                selected >= offset && selected < offset + crate::config::HOTBAR_SLOTS,
+                "slot {selected} is not in the window starting at {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bought_seed_lands_somewhere_the_hotbar_can_reach() {
+        // The end-to-end shape of the bug: buy a seed, wind the selection to it,
+        // and check the hotbar would draw it.
+        let mut state = GameState::new(1);
+        let crop = crate::config::crop_by_key("parsnip").unwrap();
+        state.inventory.add(Item::Seed(crop), 1);
+        let slot = state
+            .inventory
+            .slots()
+            .iter()
+            .position(|s| s.is_some_and(|s| s.item == Item::Seed(crop)))
+            .expect("the seed went somewhere");
+        assert!(
+            slot >= crate::config::HOTBAR_SLOTS,
+            "the tools should be in front of it"
+        );
+        let offset = hotbar_offset(slot);
+        let position = slot - offset;
+        assert!(position < crate::config::HOTBAR_SLOTS);
+        assert_eq!(
+            offset + position,
+            slot,
+            "the window does not contain the seed"
+        );
     }
 
     #[test]

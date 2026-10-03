@@ -376,6 +376,10 @@ impl Valley {
 
     /// The fixed-step update.
     fn update(&mut self, app: &mut App, dt: f32, assets: &Assets) {
+        // The toast is on a timer and nothing was winding it. Every message the
+        // game ever showed stayed on screen for the rest of the session, which
+        // is how "任务完成" became a permanent fixture of the interface.
+        self.game_ui.tick(dt);
         self.handle_keys();
 
         let playing = self.game_ui.screen == Screen::Playing && !self.game_ui.help_open;
@@ -608,6 +612,12 @@ impl Valley {
                         self.game_ui
                             .toast(format!("买了 {} 个{}种子", quantity, crop.name));
                         self.game_ui.quests.complete(screens::Quest::FirstSeed);
+                        // Hold it. A seed in a bag the hotbar cannot show is a
+                        // seed the player cannot plant, which is what "I bought
+                        // seeds and cannot farm" turned out to mean.
+                        if let Some(slot) = self.state.inventory.find(Item::Seed(crop)) {
+                            self.state.selected = slot;
+                        }
                     }
                 } else {
                     self.game_ui.toast("金币不够");
@@ -835,7 +845,11 @@ fn setup_camera(app: &mut App) {
     camera.set_pitch(core::f32::consts::FRAC_PI_2);
     camera.set_yaw_immediate(0.0);
     camera.lock_rotation();
-    camera.set_smoothing(0.35);
+    // Near-instant. The camera follows a player who is already moving smoothly,
+    // so lag buys nothing and costs the feeling of control: a camera that eases
+    // towards where the player *was* reads as the ground sliding under them.
+    // What smooths the motion is the pixel snap, not the easing.
+    camera.set_smoothing(0.0);
     camera.set_deadzone(0.0, 0.0, 0.0);
     camera.set_look_ahead(0.0, 0.0);
     camera.set_pixel_perfect(noxel_camera::PixelPerfect::at(
@@ -1555,9 +1569,8 @@ mod tests {
         input.cursor_inside = false;
         assert!(!ui_input(&input).pointer_inside);
         assert!(
-            !ui_input(&window_input((240.0, 150.0)))
-                .pointer_over(noxel_ui::UiRect::new(0, 0, 480, 270))
-                == false,
+            ui_input(&window_input((240.0, 150.0)))
+                .pointer_over(noxel_ui::UiRect::new(0, 0, 480, 270)),
             "a cursor inside the window must be able to hover something"
         );
     }
@@ -1637,6 +1650,51 @@ mod tests {
     }
 
     #[test]
+    fn the_camera_sits_where_the_player_is_rather_than_easing_towards_it() {
+        // A camera that eases towards where the player *was* reads as the ground
+        // sliding under them, and combined with the pixel snap it moves in
+        // irregular steps. The follow is exact; what smooths the motion is the
+        // snap, not the easing.
+        let assets = Rc::new(Assets::empty());
+        let mut app = build_app(&Args::default(), &assets).expect("the app must build");
+        let valley = Rc::new(RefCell::new(Valley::new(&mut app, 1, &assets, false)));
+        app.add_plugin(ValleyPlugin {
+            valley: Rc::clone(&valley),
+            assets: Rc::clone(&assets),
+        });
+        valley.borrow_mut().game_ui.screen = Screen::Playing;
+
+        let input = noxel_ui::UiInputBuilder::new().key(KEY_D).build();
+        for _ in 0..120 {
+            valley.borrow_mut().input = input.clone();
+            app.step(1.0 / 60.0);
+        }
+        let player = valley.borrow().player.position;
+        let focus = app.camera().snapped_focus();
+        // One sixteenth of a unit is one pixel; the camera may be a pixel out
+        // because of the snap and no more.
+        assert!(
+            (focus.x - player.x).abs() <= 1.0 / 16.0 + 1e-4,
+            "the camera is {:.3} units behind the player",
+            (focus.x - player.x).abs()
+        );
+        assert!((focus.z - player.y).abs() <= 1.0 / 16.0 + 1e-4);
+    }
+
+    #[test]
+    fn a_toast_goes_away() {
+        // It is on a timer, and nothing was winding it, so every message the
+        // game ever showed stayed on screen for the rest of the session.
+        let mut ui = GameUi::new(noxel_ui::Ui::flat(noxel_ui::testfont::test_font()));
+        ui.toast("任务完成：第一粒种子");
+        assert!(ui.toast_text().is_some(), "the toast should be showing");
+        for _ in 0..200 {
+            ui.tick(1.0 / 60.0);
+        }
+        assert!(ui.toast_text().is_none(), "the toast never went away");
+    }
+
+    #[test]
     fn the_screen_argument_names_every_overlay_and_rejects_the_rest() {
         for (name, expected) in [
             ("inventory", Screen::Inventory),
@@ -1660,7 +1718,10 @@ mod tests {
 
     #[test]
     fn the_movement_axis_combines_wasd_and_the_arrows() {
-        let mut input = noxel_ui::UiInputBuilder::new().key(KEY_D).key(KEY_UP).build();
+        let mut input = noxel_ui::UiInputBuilder::new()
+            .key(KEY_D)
+            .key(KEY_UP)
+            .build();
         assert_eq!(movement_axis(&input), (1.0, -1.0));
         input.keys_held = vec![KEY_A, KEY_D];
         assert_eq!(movement_axis(&input).0, 0.0, "opposite keys cancel");

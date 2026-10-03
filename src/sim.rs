@@ -507,6 +507,18 @@ impl Inventory {
         removed
     }
 
+    /// The slot holding an item, if any.
+    ///
+    /// For picking up something the player just acquired: a bought seed has to
+    /// become the held item, or the player has to go and find it in a bag of
+    /// twenty-four slots before they can do anything with it.
+    #[must_use]
+    pub fn find(&self, item: Item) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|slot| slot.is_some_and(|s| s.item == item))
+    }
+
     /// How many of an item are held.
     #[must_use]
     pub fn count_of(&self, item: Item) -> u32 {
