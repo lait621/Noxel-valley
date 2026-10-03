@@ -80,6 +80,12 @@ struct Valley {
     character_material: noxel_render::material::MaterialHandle,
     player_instance: Option<InstanceHandle>,
     player_sprite: String,
+    /// What the player is holding, drawn as part of the world.
+    held_instance: Option<InstanceHandle>,
+    /// The region the held mesh was built from, so it is rebuilt only on change.
+    held_sprite: String,
+    /// The material for the interface atlas, which is where item icons live.
+    held_material: noxel_render::material::MaterialHandle,
     /// A villager wandering the plaza, so the farm is not deserted.
     villager: Villager,
     villager_instance: Option<InstanceHandle>,
@@ -139,6 +145,16 @@ impl Valley {
                 .without_shadow_casting(),
         );
 
+        // The interface atlas again, as a world material: the item icons are
+        // the clearest drawing of each tool the game has, and a held tool has
+        // to be *in the world* to be occluded by a tree.
+        let held_texture = texture_handle(app, assets, "ui");
+        let held_material = app.scene_mut().add_material(
+            Material::sprite("valley.held", held_texture)
+                .with_alpha_mode(AlphaMode::cutout(0.5))
+                .without_shadow_casting(),
+        );
+
         setup_camera(app);
         app.scene_mut().clear_lights();
         app.scene_mut().background = Color::rgb(0.05, 0.06, 0.09);
@@ -160,6 +176,9 @@ impl Valley {
             character_material,
             player_instance: None,
             player_sprite: String::new(),
+            held_instance: None,
+            held_sprite: String::new(),
+            held_material,
             villager: Villager::default(),
             villager_instance: None,
             villager_sprite: String::new(),
@@ -346,6 +365,66 @@ impl Valley {
     /// is anchored at the sprite's feet, so the depth is taken at the feet. A
     /// sprite sorted by its head would let the player walk in front of a fence
     /// they are standing behind.
+    /// Rebuilds the held item's mesh when the player picks something else up.
+    ///
+    /// A world sprite rather than a badge drawn over the frame. Drawn in the
+    /// interface layer it was always on top — over trees, over buildings, over
+    /// the tile being aimed at — which is what "the tool blocks the view" meant.
+    /// In the world it sorts: a tree between the camera and the player hides the
+    /// tool exactly as it hides the player.
+    fn refresh_held(&mut self, app: &mut App, assets: &Assets) {
+        let Some(item) = self
+            .state
+            .inventory
+            .slots()
+            .get(self.state.selected)
+            .and_then(|slot| *slot)
+            .map(|slot| slot.item)
+        else {
+            // Nothing in hand: take the sprite away rather than leaving the
+            // last one standing there.
+            if let Some(instance) = self.held_instance.take() {
+                app.scene_mut().remove_instance(instance);
+                self.held_sprite.clear();
+            }
+            return;
+        };
+        // Only tools and seeds have art worth showing in the world; a crop in
+        // the hand would be a bag of vegetables, which is not a thing.
+        let region = item.icon();
+        let Some(atlas) = assets.atlases.ui.as_ref() else {
+            return;
+        };
+        if region == self.held_sprite {
+            return;
+        }
+        if let Some(instance) = self.held_instance.take() {
+            app.scene_mut().remove_instance(instance);
+        }
+        let mesh = world::build_character_mesh(atlas, &region);
+        if mesh.is_empty() {
+            self.held_sprite.clear();
+            return;
+        }
+        let handle = app.scene_mut().add_mesh(mesh);
+        let instance = app.scene_mut().spawn(
+            "held",
+            handle,
+            self.held_material,
+            noxel_core::math::Transform::IDENTITY,
+        );
+        app.scene_mut().set_flags(
+            instance,
+            InstanceFlags {
+                occluder: false,
+                cast_shadow: false,
+                ..InstanceFlags::default()
+            },
+        );
+        self.held_instance = Some(instance);
+        self.held_sprite = region;
+    }
+
     fn place_characters(&mut self, app: &mut App) {
         let player_feet = self.player.position.y + 0.5;
         if let Some(instance) = self.player_instance {
@@ -355,6 +434,20 @@ impl Valley {
                     self.player.position.x,
                     world::depth_of(player_feet),
                     player_feet,
+                )),
+            );
+        }
+        // The held item rides beside the player's hand: right and slightly up
+        // the screen, and a hair in front of the player so it reads as held
+        // rather than as standing next to them. Anything with a larger `z` — a
+        // tree south of here — is drawn over it, which is the whole point.
+        if let Some(instance) = self.held_instance {
+            app.scene_mut().set_transform(
+                instance,
+                noxel_core::math::Transform::from_translation(Vec3::new(
+                    self.player.position.x + 0.30,
+                    world::depth_of(player_feet + 0.004),
+                    player_feet - 0.30,
                 )),
             );
         }
@@ -471,6 +564,7 @@ impl Valley {
         self.villager.update(dt, &self.map);
         self.update_lighting(app);
         self.rebuild(app, assets);
+        self.refresh_held(app, assets);
         self.refresh_characters(app, assets);
         self.place_characters(app);
         app.context.focus = Vec3::new(self.player.position.x, 0.0, self.player.position.y);
@@ -620,7 +714,8 @@ impl Valley {
         let input = self.input.clone();
         // Computed here because this is the only place that has the farm, the
         // player and the bag at once — and it is a *sentence*, not a widget.
-        self.game_ui.hint = screens::hint(&self.state, &self.map, &self.player);
+        self.game_ui
+            .set_hint(screens::hint(&self.state, &self.map, &self.player));
         self.game_ui.begin(app.config.fixed_dt, &input);
         // The action is applied here rather than in `update`, because this is
         // where the widgets run and the answer is only known now.
@@ -641,8 +736,6 @@ impl Valley {
         let focus = app.camera().snapped_focus();
         self.game_ui
             .draw_aim_highlight(framebuffer, &self.state, &self.player, focus);
-        self.game_ui
-            .draw_held_item(framebuffer, &self.state, &self.player, assets, focus);
         self.game_ui
             .draw_weather(framebuffer, &self.engine_weather, focus);
         self.game_ui.end();
@@ -805,6 +898,11 @@ fn texture_handle(
         "terrain" => assets.atlases.terrain.as_ref(),
         "crops" => assets.atlases.crops.as_ref(),
         "characters" => assets.atlases.characters.as_ref(),
+        "ui" => assets.atlases.ui.as_ref(),
+        // Anything unknown falls back to the props atlas, which is the largest
+        // and the most likely to have *something* at the coordinates asked for.
+        // Forgetting a case here does not fail — it silently samples the wrong
+        // picture, which is how the held hoe came out looking like a crate.
         _ => assets.atlases.props.as_ref(),
     };
     match atlas {

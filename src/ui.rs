@@ -145,6 +145,8 @@ pub struct GameUi {
     pub hint: Option<String>,
     /// The bag slot being dragged, if any.
     pub drag_from: Option<usize>,
+    /// How long the current hint has been showing.
+    hint_age: f32,
     /// The weather animation's phase, in seconds.
     pub weather_phase: f32,
     /// Whether the villager is close enough to talk to.
@@ -175,6 +177,7 @@ impl GameUi {
             settings: crate::screens::Settings::default(),
             hint: None,
             drag_from: None,
+            hint_age: 0.0,
             weather_phase: 0.0,
             villager_nearby: false,
         }
@@ -191,8 +194,41 @@ impl GameUi {
         self.toast.as_ref().map(|(text, _)| text.as_str())
     }
 
+    /// Replaces the hint, restarting its life.
+    ///
+    /// A hint that never leaves is a hint that becomes furniture: the player
+    /// stops reading it and it sits over the interface forever. It earns its
+    /// place by *changing* — the moment the situation changes it comes back at
+    /// full strength, and if nothing has changed for a while it has nothing
+    /// left to say.
+    pub fn set_hint(&mut self, hint: Option<String>) {
+        if hint != self.hint {
+            self.hint = hint;
+            self.hint_age = 0.0;
+        }
+    }
+
+    /// How visible the hint should be, `0..=1`.
+    #[must_use]
+    pub fn hint_alpha(&self) -> f32 {
+        /// Seconds the hint stays at full strength before it starts to go.
+        const HOLD: f32 = 6.0;
+        /// Seconds it takes to fade once it starts.
+        const FADE: f32 = 1.5;
+        if self.hint.is_none() {
+            return 0.0;
+        }
+        let past = self.hint_age - HOLD;
+        if past <= 0.0 {
+            1.0
+        } else {
+            (1.0 - past / FADE).clamp(0.0, 1.0)
+        }
+    }
+
     /// Advances the toast timer.
     pub fn tick(&mut self, dt: f32) {
+        self.hint_age += dt;
         if let Some((_, remaining)) = self.toast.as_mut() {
             *remaining -= dt;
             if *remaining <= 0.0 {
@@ -475,14 +511,52 @@ impl GameUi {
             );
         }
 
+        // -- what is in your hand, in words ----------------------------------
+        //
+        // Under the hotbar. The icons are sixteen pixels of abstract drawing —
+        // a hoe and a rake are four pixels apart at that size — so the name is
+        // the answer to "which one is this", and it costs one line.
+        if let Some(item) = state
+            .inventory
+            .slots()
+            .get(state.selected)
+            .and_then(|slot| *slot)
+            .map(|slot| slot.item)
+        {
+            let label = item.name();
+            let style = TextStyle::new(theme.palette.text_strong)
+                .with_align(TextAlign::Center)
+                .with_shadow(theme.palette.shadow);
+            let (width, _) = self.ui.font.measure(&label, &style);
+            let mut painter = self.ui.painter(framebuffer);
+            self.ui.font.draw_text(
+                &mut painter,
+                UiRect::new(
+                    screen.center().0 - width as i32 / 2,
+                    hotbar.bottom() + 2,
+                    width,
+                    12,
+                ),
+                &label,
+                &style,
+            );
+        }
+
         // -- what to do next -------------------------------------------------
         //
         // Above the hotbar, in the player's eye line, and only in the world: a
         // clue drawn over a menu is a clue in the way.
-        if let Some(text) = self.hint.clone() {
-            let style = TextStyle::new(theme.palette.text_strong)
-                .with_align(TextAlign::Center)
-                .with_shadow(theme.palette.shadow);
+        let hint_alpha = self.hint_alpha();
+        if let Some(text) = self.hint.clone().filter(|_| hint_alpha > 0.01) {
+            let base = theme.palette.text_strong;
+            let style = TextStyle::new(Color8::new(
+                base.r,
+                base.g,
+                base.b,
+                (255.0 * hint_alpha) as u8,
+            ))
+            .with_align(TextAlign::Center)
+            .with_shadow(theme.palette.shadow);
             let (width, height) = self.ui.font.measure(&text, &style);
             let strip = UiRect::new(
                 screen.x + (screen.w as i32 - width as i32 - 8) / 2,
@@ -496,7 +570,7 @@ impl GameUi {
             // the middle of the screen, every second of play, and a bordered box
             // there competes with the world for attention.
             plate.source = UiRect::new(0, 0, 0, 0);
-            plate.fill = Color8::new(14, 12, 18, 190);
+            plate.fill = Color8::new(14, 12, 18, (190.0 * hint_alpha) as u8);
             plate.border_width = 0;
             self.ui.panel_blocking(&mut painter, input, strip, &plate);
             self.ui.font.draw_text(&mut painter, strip, &text, &style);
